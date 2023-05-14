@@ -25,7 +25,8 @@ porcupine = pvporcupine.create(
     keyword_paths=wakeup_keywords(),
 )
 frame_length = porcupine.frame_length  # 512
-buffer_size = frame_length * 32 * 5  # keeps 5s of audio
+buffer_size_when_not_listening = frame_length * 32 * 5  # keeps 5s of audio
+buffer_size_on_active_listening = frame_length * 32 * 60  # keeps 60s of audio
 sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
 silence_threshold = 300  # maybe need to be adjusted
 silence_limit = 2 * sample_rate // frame_length  # 2 seconds of silence
@@ -56,7 +57,7 @@ ListeningMode = Literal["waiting_for_wakeup", "reply_on_silence"]
 def conversation_loop(recorder: PvRecorder):
     silence_frame_count = 0
     speaking_frame_count = 0
-    listening_mode: ListeningMode = "waiting_for_wakeup"
+    listening_mode: ListeningMode = "reply_on_silence"
 
     logger.info("Listening ... (press Ctrl+C to exit)")
 
@@ -64,7 +65,7 @@ def conversation_loop(recorder: PvRecorder):
 
     while True:
         pcm = recorder.read()
-        print(f"🔴 {red}Recording...{reset} silence_frame_count: {silence_frame_count} speaking_frame_count: {speaking_frame_count}", end="\r", flush=True)
+        print(f"🔴 {red}Recording...{reset}", end="\r", flush=True)
 
         trigger = -1
         if listening_mode == "waiting_for_wakeup":
@@ -96,7 +97,11 @@ def conversation_loop(recorder: PvRecorder):
                 listening_mode = "waiting_for_wakeup"
 
         audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
-        if len(audio_buffer) > buffer_size:
+        if len(audio_buffer) > (
+            buffer_size_on_active_listening
+            if listening_mode == "reply_on_silence"
+            else buffer_size_when_not_listening
+        ):
             audio_buffer = audio_buffer[
                 frame_length:
             ]  # drop early frames to keep just most recent audio

@@ -39,7 +39,9 @@ def reply(user_message_content: str) -> Message:
 
     assistant_message: Message = {
         "role": "assistant",
-        "content": response.choices[0].message.content.strip(),
+        "content": response.choices[0].message.content.strip(), # type: ignore
     }
+
+    conversation.append(assistant_message)
 
     return assistant_message
