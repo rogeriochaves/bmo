@@ -63,6 +63,7 @@ def main():
 
             if result >= 0:
                 logger.info("Detected hotword #%s", result)
+                elevenlabs.play_audio_file_non_blocking("beep.mp3")
                 audio_file = create_audio_file(audio_buffer)
                 logger.info("Built wav file")
 
@@ -71,6 +72,7 @@ def main():
                 logger.info("Transcription: %s", transcription["text"])
 
                 reply = chatgpt.reply(transcription["text"])
+                elevenlabs.play_audio_file_non_blocking("beep2.mp3")
                 logger.info("Reply: %s", reply["content"])
 
                 audio_stream = elevenlabs.text_to_speech(reply["content"])

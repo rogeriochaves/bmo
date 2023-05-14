@@ -11,6 +11,7 @@ VOICE_ID = "EXAVITQu4vr4xnSDxMaL"
 
 logger = logging.getLogger()
 
+
 def text_to_speech(text: str):
     audio_stream = generate(
         api_key=eleven_labs_api_key,
@@ -25,6 +26,15 @@ def text_to_speech(text: str):
         stream=True,
     )
     return audio_stream
+
+
+def play_audio_file_non_blocking(beep_file):
+    filename = f"static/{beep_file}"
+    subprocess.Popen(
+        ["ffplay", filename, "-autoexit", "-nodisp"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
 
 
 def play(audio_iter):
