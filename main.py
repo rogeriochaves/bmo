@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, List, Literal
 from lib.delta_logging import logging, red, reset  # has to be the first import
 from dotenv import load_dotenv  # has to be the second
 
@@ -36,79 +36,97 @@ silence_time_to_standby = (
 )  # goes back to wakeup word checking after 10s of silence
 
 
-def create_audio_file(audio_buffer):
-    virtual_file = BytesIO()
-    wav_file = wave.open(virtual_file, "wb")
-    wav_file.setnchannels(1)
-    wav_file.setsampwidth(2)
-    wav_file.setframerate(16000)
-    wav_file.writeframes(audio_buffer)
-    wav_file.close()
-    audio_buffer = bytearray()
-    virtual_file.name = "recording.wav"
-    virtual_file.seek(0)
-
-    return virtual_file
+RecordingState = Literal[
+    "waiting_for_wakeup", "waiting_for_silence", "waiting_for_next_frame", "replying"
+]
 
 
-ListeningMode = Literal["waiting_for_wakeup", "reply_on_silence"]
+class AudioRecording:
+    state: RecordingState
+    silence_frame_count: int
+    speaking_frame_count: int
+    audio_buffer: bytearray
+    recorder: PvRecorder
 
+    def __init__(self, recorder: PvRecorder) -> None:
+        self.recorder = recorder
+        self.reset("waiting_for_wakeup")
 
-def conversation_loop(recorder: PvRecorder):
-    silence_frame_count = 0
-    speaking_frame_count = 0
-    listening_mode: ListeningMode = "reply_on_silence"
+    def reset(self, state):
+        self.recorder.start()
+        self.state = state
+        self.silence_frame_count = 0
+        self.speaking_frame_count = 0
+        self.audio_buffer = bytearray()
 
-    logger.info("Listening ... (press Ctrl+C to exit)")
+    def next_frame(self):
+        pcm = self.recorder.read()
 
-    audio_buffer = bytearray()
+        self.audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
+        self.drop_early_audio_frames()
 
-    while True:
-        pcm = recorder.read()
-        print(f"🔴 {red}Recording...{reset}", end="\r", flush=True)
+        if self.state == "waiting_for_wakeup":
+            self.waiting_for_wakeup(pcm)
 
-        trigger = -1
-        if listening_mode == "waiting_for_wakeup":
-            trigger = porcupine.process(pcm)
-            if trigger >= 0:
-                logger.info("Detected wakeup word #%s", trigger)
-        elif listening_mode == "reply_on_silence":
-            rms = np.sqrt(np.mean(np.array(pcm) ** 2))
-            if rms < silence_threshold:
-                silence_frame_count += 1
-            else:
-                if speaking_frame_count >= speaking_minimum:
-                    silence_frame_count = 0
-                speaking_frame_count += 1
+        elif self.state == "waiting_for_silence":
+            self.waiting_for_silence(pcm)
 
-            if (
-                silence_frame_count >= silence_limit
-                and speaking_frame_count >= speaking_minimum
-            ):
-                logger.info("Detected silence a while after speaking, giving a reply")
-                trigger = 0
+        elif self.state == "waiting_for_next_frame":
+            self.state = "replying"
 
-            if silence_frame_count >= silence_time_to_standby:
-                logger.info(
-                    "Long silence time, going back to waiting for the wakeup word"
-                )
-                silence_frame_count = 0
-                speaking_frame_count = 0
-                listening_mode = "waiting_for_wakeup"
-
-        audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
-        if len(audio_buffer) > (
-            buffer_size_on_active_listening
-            if listening_mode == "reply_on_silence"
-            else buffer_size_when_not_listening
+    def drop_early_audio_frames(self):
+        if len(self.audio_buffer) > (
+            buffer_size_when_not_listening
+            if self.state == "waiting_for_wakeup"
+            else buffer_size_on_active_listening
         ):
-            audio_buffer = audio_buffer[
+            self.audio_buffer = self.audio_buffer[
                 frame_length:
             ]  # drop early frames to keep just most recent audio
 
+    def waiting_for_wakeup(self, pcm: List[Any]):
+        print(f"⚪️ Waiting for wake up word...", end="\r", flush=True)
+        trigger = porcupine.process(pcm)
         if trigger >= 0:
+            logger.info("Detected wakeup word #%s", trigger)
+            self.state = "waiting_for_next_frame"
+
+    def waiting_for_silence(self, pcm: List[Any]):
+        print(f"🔴 {red}Listening...{reset}", end="\r", flush=True)
+
+        rms = np.sqrt(np.mean(np.array(pcm) ** 2))
+        if rms < silence_threshold:
+            self.silence_frame_count += 1
+        else:
+            if self.speaking_frame_count >= speaking_minimum:
+                self.silence_frame_count = 0
+            self.speaking_frame_count += 1
+
+        if (
+            self.silence_frame_count >= silence_limit
+            and self.speaking_frame_count >= speaking_minimum
+        ):
+            logger.info("Detected silence a while after speaking, giving a reply")
+            self.state = "waiting_for_next_frame"
+
+        if self.silence_frame_count >= silence_time_to_standby:
+            logger.info("Long silence time, going back to waiting for the wakeup word")
+            self.silence_frame_count = 0
+            self.speaking_frame_count = 0
+            self.state = "waiting_for_wakeup"
+
+
+def conversation_loop(recorder: PvRecorder):
+    audio_recording = AudioRecording(recorder)
+
+    logger.info("Listening ... (press Ctrl+C to exit)")
+
+    while True:
+        audio_recording.next_frame()
+
+        if audio_recording.state == "replying":
             elevenlabs.play_audio_file_non_blocking("beep.mp3")
-            audio_file = create_audio_file(audio_buffer)
+            audio_file = create_audio_file(audio_recording.audio_buffer)
             logger.info("Built wav file")
 
             recorder.stop()
@@ -124,17 +142,26 @@ def conversation_loop(recorder: PvRecorder):
             elevenlabs.play(audio_stream)
             logger.info("Playing audio done")
 
-            listening_mode = "reply_on_silence"
-            silence_frame_count = 0
-            speaking_frame_count = 0
-            audio_buffer = bytearray()
+            audio_recording.reset("waiting_for_silence")
 
-            recorder.start()
+
+def create_audio_file(audio_buffer):
+    virtual_file = BytesIO()
+    wav_file = wave.open(virtual_file, "wb")
+    wav_file.setnchannels(1)
+    wav_file.setsampwidth(2)
+    wav_file.setframerate(16000)
+    wav_file.writeframes(audio_buffer)
+    wav_file.close()
+    audio_buffer = bytearray()
+    virtual_file.name = "recording.wav"
+    virtual_file.seek(0)
+
+    return virtual_file
 
 
 def main():
     recorder = PvRecorder(device_index=-1, frame_length=porcupine.frame_length)
-    recorder.start()
     try:
         conversation_loop(recorder)
     except KeyboardInterrupt:
