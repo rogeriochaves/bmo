@@ -44,6 +44,8 @@ def reply() -> Message:
     for response in stream:
         if "content" in response.choices[0].delta:
             full_message += response.choices[0].delta.content
+        if len(full_message.split(" ")) > 100:
+            break
     full_message = full_message.strip()
 
     assistant_message: Message = {
