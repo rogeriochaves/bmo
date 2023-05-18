@@ -9,6 +9,7 @@ load_dotenv()
 from lib.porcupine import wakeup_keywords
 import lib.chatgpt as chatgpt
 import lib.elevenlabs as elevenlabs
+import lib.whisper as whisper
 import os
 import struct
 import wave
@@ -34,7 +35,7 @@ sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
 silence_threshold = 300  # maybe need to be adjusted
 # TODO: reduce to 1s and stop if needed
 silence_limit = 1 * sample_rate // frame_length  # 1.5 seconds of silence
-speaking_minimum = 0.5 * sample_rate // frame_length  # 0.5 seconds of speaking
+speaking_minimum = 0.3 * sample_rate // frame_length  # 0.3 seconds of speaking
 silence_time_to_standby = (
     10 * sample_rate // frame_length
 )  # goes back to wakeup word checking after 10s of silence
@@ -186,7 +187,9 @@ class AudioRecording:
         try:
             (action, data) = self.reply_out_queue.get(block=False)
             if action == "user_message_added":
-                self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
+                self.recording_audio_buffer = self.recording_audio_buffer[
+                    -frame_length:
+                ]
             elif action == "play_start":
                 self.interruption_detection.audio_playback_process_pid = data
                 self.silence_frame_count = 0
@@ -210,27 +213,31 @@ class AudioRecording:
 
 
 def reply(audio_file: BytesIO, reply_out_queue: Queue):
-    transcription: Any = openai.Audio.transcribe("whisper-1", audio_file)
-    logger.info("Transcription: %s", transcription["text"])
-    if len(transcription["text"]) > 1:
-        chatgpt.add_user_message(transcription["text"])
-    else:
-        logger.info("Transcription too small, probably a mistake, bailing out")
-        if chatgpt.conversation[-1]["role"] != "user":
-            return
+    try:
+        transcription = whisper.transcribe("whisper-1", audio_file)
+        logger.info("Transcription: %s", transcription["text"])
+        if len(transcription["text"]) > 1:
+            chatgpt.add_user_message(transcription["text"])
+        else:
+            logger.info("Transcription too small, probably a mistake, bailing out")
+            if chatgpt.conversation[-1]["role"] != "user":
+                return
 
-    elevenlabs.play_audio_file_non_blocking("beep.mp3")
-    reply_out_queue.put(("user_message_added", None))
+        elevenlabs.play_audio_file_non_blocking("beep.mp3")
+        reply_out_queue.put(("user_message_added", None))
 
-    reply = chatgpt.reply()
+        reply = chatgpt.reply()
 
-    elevenlabs.play_audio_file_non_blocking("beep2.mp3")
-    logger.info("Reply: %s", reply["content"])
+        elevenlabs.play_audio_file_non_blocking("beep2.mp3")
+        logger.info("Reply: %s", reply["content"])
 
-    audio_stream = elevenlabs.text_to_speech(reply["content"])
+        audio_stream = elevenlabs.text_to_speech(reply["content"])
 
-    elevenlabs.play(audio_stream, reply_out_queue)
-    logger.info("Playing audio done")
+        elevenlabs.play(audio_stream, reply_out_queue)
+        logger.info("Playing audio done")
+    except Exception:
+        logging.exception("Exception thrown in reply")
+        elevenlabs.play_audio_file("error.mp3", reply_out_queue)
 
 
 def create_audio_file(recording_audio_buffer):

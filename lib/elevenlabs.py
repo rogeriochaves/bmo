@@ -36,13 +36,20 @@ def text_to_speech(text: str):
     return audio_stream
 
 
-def play_audio_file_non_blocking(beep_file):
-    filename = f"static/{beep_file}"
+def play_audio_file_non_blocking(audio_file):
+    filename = f"static/{audio_file}"
     subprocess.Popen(
         ["ffplay", filename, "-autoexit", "-nodisp"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
     )
+
+
+def play_audio_file(audio_file, reply_out_queue: Queue):
+    filename = f"static/{audio_file}"
+    with open(filename, "rb") as file:
+        audio_item = [bytearray(file.read())]
+        play(audio_item, reply_out_queue)
 
 
 def play(audio_iter, reply_out_queue: Queue):

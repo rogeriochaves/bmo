@@ -1,9 +1,10 @@
 import os
-from typing import List, Literal, TypedDict
+from typing import Any, List, Literal, TypedDict
 
 import openai
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
+
 
 class Message(TypedDict):
     role: Literal["system", "user", "assistant"]
@@ -29,20 +30,26 @@ initial_message: Message = {"role": "system", "content": prompt}
 
 conversation: Conversation = [initial_message]
 
+
 def add_user_message(user_message_content: str):
     conversation.append({"role": "user", "content": user_message_content})
 
 
 def reply() -> Message:
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo", messages=conversation
+    stream: Any = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo", messages=conversation, timeout=1, stream=True
     )
+
+    full_message = ""
+    for response in stream:
+        if "content" in response.choices[0].delta:
+            full_message += response.choices[0].delta.content
+    full_message = full_message.strip()
 
     assistant_message: Message = {
         "role": "assistant",
-        "content": response.choices[0].message.content.strip(), # type: ignore
+        "content": full_message,  # type: ignore
     }
-
     conversation.append(assistant_message)
 
     return assistant_message
