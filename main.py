@@ -29,7 +29,7 @@ porcupine = pvporcupine.create(
     keyword_paths=wakeup_keywords(),
 )
 frame_length = porcupine.frame_length  # 512
-buffer_size_when_not_listening = frame_length * 32 * 5  # keeps 5s of audio
+buffer_size_when_not_listening = frame_length * 32 * 20  # keeps 20s of audio
 buffer_size_on_active_listening = frame_length * 32 * 60  # keeps 60s of audio
 sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
 silence_threshold = 300  # maybe need to be adjusted
