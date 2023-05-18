@@ -16,6 +16,6 @@ def transcribe(model, file, **params) -> TranscriptionResult:
     )
     url = openai.Audio._get_url("transcriptions")
     response, _, api_key = requestor.request(
-        "post", url, files=files, params=data, request_timeout=3
+        "post", url, files=files, params=data, request_timeout=5
     )
     return util.convert_to_openai_object(response, api_key, None, None) # type: ignore
