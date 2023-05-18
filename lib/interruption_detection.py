@@ -1,11 +1,12 @@
 from multiprocessing import Process, Queue
 from queue import Empty
-from subprocess import Popen
 import librosa
 from scipy.spatial.distance import cosine
 from typing import Any, List
 import numpy as np
 import math
+
+from lib.utils import terminate_pid_safely
 
 # This code is quite convoluted, trying to do a hacky, but lightweight, way of detecting interruption on the fly.
 # It is necessary because we cannot do a simple volume check, since there might be an echo loop when the speakers
@@ -39,7 +40,7 @@ class InterruptionDetection:
     reply_audio_skip_frames_after_first_sound: int
 
     accumulated_similarity: List[Any]
-    audio_playback_process: Popen[bytes]
+    audio_playback_process_pid: int
     interrupted: bool = False
     done: bool = False
     interruption_check_process: Process
@@ -47,7 +48,7 @@ class InterruptionDetection:
     interruption_check_out_queue: Queue
     total_checks_count: int
 
-    def __init__(self, audio_playback_process: Popen[bytes]) -> None:
+    def __init__(self, audio_playback_process_pid: int) -> None:
         self.reply_audio = []
         self.reply_audio_skip_frames = (
             frame_length * -28
@@ -56,7 +57,7 @@ class InterruptionDetection:
             -1
         )  # this will start counting only when first sound is heard, for feedback loops
         self.accumulated_similarity = []
-        self.audio_playback_process = audio_playback_process
+        self.audio_playback_process_pid = audio_playback_process_pid
         self.interruption_check_in_queue = Queue()
         self.interruption_check_out_queue = Queue()
         self.total_checks_count = 0
@@ -73,7 +74,7 @@ class InterruptionDetection:
     def stop(self):
         self.interruption_check_in_queue.put("done")
         self.done = True
-        self.audio_playback_process.kill()
+        terminate_pid_safely(self.audio_playback_process_pid)
         self.interruption_check_process.kill()
 
     def check_for_interruption(self, pcm, is_silence: bool):
@@ -164,10 +165,7 @@ def check_next_frame(in_queue: Queue, out_queue: Queue):
 
             initial_batches_similarities.append(similarity)
             if len(initial_batches_similarities) == 5:
-                print(
-                    "Initial similarities mean", np.mean(initial_batches_similarities)
-                )
-                if np.mean(initial_batches_similarities) > 0.955:
+                if np.mean(initial_batches_similarities) > 0.95:
                     batch_size = 4
                     has_audio_feedback = True
 
@@ -189,8 +187,6 @@ def check_next_frame(in_queue: Queue, out_queue: Queue):
             )
             silence_log_diff = math.log(volume_pcm or 1) - math.log(volume_reply or 1)
 
-            print("silence_log_diff", silence_log_diff)
-
             if silence_log_diff > 3.5:
                 stop_counts += 1
                 loops_since_last_stop = 0
@@ -198,12 +194,6 @@ def check_next_frame(in_queue: Queue, out_queue: Queue):
             if volume_pcm >= silence_threshold:
                 stop_counts += 1
                 loops_since_last_stop = 0
-
-        print(
-            f"Stop_counts: {stop_counts}, stop avg: {stop_counts / (loops_since_last_stop or 1)}",
-            end="\r",
-            flush=True,
-        )
 
         if stop_counts >= 2:
             out_queue.put("interrupt")

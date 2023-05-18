@@ -1,4 +1,5 @@
-import threading
+from multiprocessing import Process, Queue
+from queue import Empty
 from typing import Any, List, Literal, Optional
 from lib.delta_logging import logging, red, reset  # has to be the first import
 from dotenv import load_dotenv
@@ -16,7 +17,6 @@ from pvrecorder import PvRecorder
 from io import BytesIO
 import openai
 import numpy as np
-import nanoid
 
 picovoice_access_key = os.environ["PICOVOICE_ACCESS_KEY"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -55,12 +55,13 @@ class AudioRecording:
     speaking_frame_count: int
     recording_audio_buffer: bytearray
     recorder: PvRecorder
-    reply_request_id: Optional[str] = None
-    reply_thread: Optional[threading.Thread] = None
+    reply_process: Optional[Process] = None
+    reply_out_queue: Queue
     interruption_detection: Optional[InterruptionDetection] = None
 
     def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
+        self.reply_out_queue = Queue()
         self.reset("waiting_for_silence")
 
     def reset(self, state):
@@ -73,9 +74,8 @@ class AudioRecording:
 
     def stop(self):
         self.recorder.stop()
-        self.reply_request_id = None
-        if self.reply_thread:
-            self.reply_thread.join()
+        if self.reply_process:
+            self.reply_process.kill()
         if self.interruption_detection:
             self.interruption_detection.stop()
 
@@ -84,22 +84,9 @@ class AudioRecording:
         rms = np.sqrt(np.mean(np.array(pcm) ** 2))
         is_silence = rms < silence_threshold
 
-        if self.interruption_detection is not None:
-            if self.interruption_detection.is_done():
-                self.reply_request_id = None
-                self.reset("waiting_for_silence")
-                return
-            else:
-                interrupted = self.interruption_detection.check_for_interruption(
-                    pcm, is_silence
-                )
-                if interrupted:
-                    logger.info("Interrupted")
-                    self.reply_request_id = None
-                    self.reset("waiting_for_silence")
-                    return
-                else:
-                    return
+        if self.state == "waiting_for_interruption":
+            self.check_for_interruption(pcm, is_silence)
+            return
 
         self.recording_audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
         self.drop_early_recording_audio_frames()
@@ -113,25 +100,23 @@ class AudioRecording:
         elif self.state == "waiting_for_next_frame":
             self.state = "replying"
             self.speaking_frame_count = 0
-            self.reply_request_id = nanoid.generate()
 
         elif self.state == "replying":
-            if self.reply_thread is not None:
-                self.reply_thread.join()  # wait for the previous thread to finish
+            if self.reply_process is not None:
+                self.reply_process.kill()  # kill previous process to not reply on top
             self.recorder.stop()
             elevenlabs.play_audio_file_non_blocking("beep.mp3")
             audio_file = create_audio_file(self.recording_audio_buffer)
             logger.info("Built wav file")
 
-            self.reply_thread = threading.Thread(target=reply, args=(self, audio_file))
-            self.reply_thread.daemon = True
-            self.reply_thread.start()
+            self.reply_out_queue = Queue()
+            self.reply_process = Process(
+                target=reply, args=(audio_file, self.reply_out_queue)
+            )
+            self.reply_process.start()
 
             self.reset("waiting_for_interruption")
             self.recorder.start()
-
-        elif self.state == "waiting_for_interruption":
-            pass
 
     def drop_early_recording_audio_frames(self):
         if len(self.recording_audio_buffer) > (
@@ -166,12 +151,8 @@ class AudioRecording:
                 self.recording_audio_buffer = self.recording_audio_buffer[
                     -frame_length:
                 ]
-
             self.speaking_frame_count += 1
             self.silence_frame_count = 0
-            if self.speaking_frame_count >= speaking_minimum:
-                self.reply_request_id = None
-                self.reply_audio = None
 
         if (
             self.silence_frame_count >= silence_limit
@@ -186,26 +167,44 @@ class AudioRecording:
             self.speaking_frame_count = 0
             self.state = "waiting_for_wakeup"
 
+    def check_for_interruption(self, pcm, is_silence):
+        try:
+            (action, data) = self.reply_out_queue.get(block=False)
+            if action == "play_start":
+                self.interruption_detection = InterruptionDetection(data)
+            elif action == "reply_audio":
+                if self.interruption_detection is not None:
+                    self.interruption_detection.reply_audio = data
+        except Empty:
+            pass
 
-def reply(audio_recording: AudioRecording, audio_file: BytesIO):
-    request_id = audio_recording.reply_request_id
+        if self.interruption_detection is None:
+            return
+
+        if self.interruption_detection.is_done():
+            self.reset("waiting_for_silence")
+        else:
+            interrupted = self.interruption_detection.check_for_interruption(
+                pcm, is_silence
+            )
+            if interrupted:
+                logger.info("Interrupted")
+                self.reset("waiting_for_silence")
+
+
+def reply(audio_file: BytesIO, reply_out_queue: Queue):
     transcription: Any = openai.Audio.transcribe("whisper-1", audio_file)
     logger.info("Transcription: %s", transcription["text"])
     chatgpt.add_user_message(transcription["text"])
 
-    if request_id != audio_recording.reply_request_id:
-        return
-
     reply = chatgpt.reply()
-    if request_id != audio_recording.reply_request_id:
-        return
 
     elevenlabs.play_audio_file_non_blocking("beep2.mp3")
     logger.info("Reply: %s", reply["content"])
 
     audio_stream = elevenlabs.text_to_speech(reply["content"])
 
-    elevenlabs.play(audio_recording, audio_stream)
+    elevenlabs.play(audio_stream, reply_out_queue)
     logger.info("Playing audio done")
 
 

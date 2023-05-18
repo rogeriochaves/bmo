@@ -1,4 +1,5 @@
 from io import BytesIO
+from multiprocessing import Queue
 import os
 import struct
 import subprocess
@@ -44,9 +45,7 @@ def play_audio_file_non_blocking(beep_file):
     )
 
 
-def play(audio_recording, audio_iter):
-    request_id = audio_recording.reply_request_id
-
+def play(audio_iter, reply_out_queue: Queue):
     args = ["ffplay", "-autoexit", "-nodisp", "-"]
     proc = subprocess.Popen(
         args=args,
@@ -57,12 +56,9 @@ def play(audio_recording, audio_iter):
 
     first = False
     reply_buffer = bytearray()
-    audio_recording.interruption_detection = InterruptionDetection(proc)
+    reply_out_queue.put(("play_start", proc.pid))
 
     for audio_chunk in audio_iter:
-        if request_id != audio_recording.reply_request_id:
-            # TODO: maybe kill the process?
-            break
         if not first:
             first = True
             logging.info("First audio chunk arrived")
@@ -76,8 +72,7 @@ def play(audio_recording, audio_iter):
         if len(reply_buffer) >= 512:
             pcm_bytes = mp3_to_pcm(reply_buffer)
             pcm_ints = list(struct.unpack("h" * (len(pcm_bytes) // 2), pcm_bytes))
-            if audio_recording.interruption_detection is not None:
-                audio_recording.interruption_detection.reply_audio = pcm_ints
+            reply_out_queue.put(("reply_audio", pcm_ints))
 
     proc.stdin.close()  # type: ignore
     proc.wait()
