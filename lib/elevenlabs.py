@@ -1,13 +1,19 @@
+from io import BytesIO
 import os
+import struct
 import subprocess
+import wave
 from elevenlabs import generate, Voice, VoiceSettings
 from lib.delta_logging import logging
+import ffmpeg
+
+from lib.interruption_detection import InterruptionDetection
 
 eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 
 VOICE_SETTINGS_STABILITY = 0.75
 VOICE_SETTINGS_SIMILARITY_BOOST = 0.75
-VOICE_ID = "EXAVITQu4vr4xnSDxMaL" # pNInz6obpgDQGcFmaJgB
+VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # pNInz6obpgDQGcFmaJgB
 
 logger = logging.getLogger()
 
@@ -38,7 +44,9 @@ def play_audio_file_non_blocking(beep_file):
     )
 
 
-def play(audio_iter):
+def play(audio_recording, audio_iter):
+    request_id = audio_recording.reply_request_id
+
     args = ["ffplay", "-autoexit", "-nodisp", "-"]
     proc = subprocess.Popen(
         args=args,
@@ -48,11 +56,47 @@ def play(audio_iter):
     )
 
     first = False
+    reply_buffer = bytearray()
+    audio_recording.interruption_detection = InterruptionDetection(proc)
+
     for audio_chunk in audio_iter:
+        if request_id != audio_recording.reply_request_id:
+            # TODO: maybe kill the process?
+            break
         if not first:
             first = True
             logging.info("First audio chunk arrived")
+
+        if proc.poll() is not None:
+            return
         proc.stdin.write(audio_chunk)  # type: ignore
+
+        reply_buffer.extend(audio_chunk)
+        # TODO: optimize, send only the first buffer then checkpoints
+        if len(reply_buffer) >= 512:
+            pcm_bytes = mp3_to_pcm(reply_buffer)
+            pcm_ints = list(struct.unpack("h" * (len(pcm_bytes) // 2), pcm_bytes))
+            if audio_recording.interruption_detection is not None:
+                audio_recording.interruption_detection.reply_audio = pcm_ints
 
     proc.stdin.close()  # type: ignore
     proc.wait()
+
+
+def mp3_to_pcm(mp3_bytes):
+    try:
+        # Convert the audio file to PCM using ffmpeg
+        wav_bytes, err = (
+            ffmpeg.input("pipe:0", format="mp3")
+            .output("pipe:1", format="wav", acodec="pcm_s16le", ac=1, ar="16k")
+            .run(input=mp3_bytes, capture_stdout=True, capture_stderr=True)
+        )
+
+        wav_file = wave.open(BytesIO(wav_bytes), "rb")
+        frames = wav_file.readframes(wav_file.getnframes())
+        wav_file.close()
+        return frames
+    except ffmpeg.Error as e:
+        print("FFmpeg error:")
+        print(e.stderr.decode())
+        raise e

@@ -4,3 +4,7 @@ pvrecorder==1.1.1
 wave==0.0.2
 openai==0.27.4
 elevenlabs==0.2.12
+nanoid==2.0.0
+numpy==1.24.3
+scipy==1.10.1
+librosa==0.10.0.post2
