@@ -33,7 +33,7 @@ buffer_size_on_active_listening = frame_length * 32 * 60  # keeps 60s of audio
 sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
 silence_threshold = 300  # maybe need to be adjusted
 # TODO: reduce to 1s and stop if needed
-silence_limit = 2 * sample_rate // frame_length  # 2 seconds of silence
+silence_limit = 1 * sample_rate // frame_length  # 1.5 seconds of silence
 speaking_minimum = 0.5 * sample_rate // frame_length  # 0.5 seconds of speaking
 silence_time_to_standby = (
     10 * sample_rate // frame_length
@@ -62,15 +62,24 @@ class AudioRecording:
     def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
         self.reply_out_queue = Queue()
+        self.recording_audio_buffer = bytearray()
+        self.speaking_frame_count = 0
         self.reset("waiting_for_silence")
 
     def reset(self, state):
         self.recorder.start()
         self.state = state
+
         self.silence_frame_count = 0
-        self.speaking_frame_count = 0
-        self.recording_audio_buffer = bytearray()
-        self.interruption_detection = None
+
+        if state == "waiting_for_silence":
+            self.interruption_detection = None
+        elif state == "waiting_for_interruption":
+            self.interruption_detection = InterruptionDetection()
+        else:
+            self.speaking_frame_count = 0
+            self.recording_audio_buffer = bytearray()
+            self.interruption_detection = None
 
     def stop(self):
         self.recorder.stop()
@@ -86,7 +95,11 @@ class AudioRecording:
 
         if self.state == "waiting_for_interruption":
             self.check_for_interruption(pcm, is_silence)
-            return
+            if (
+                self.interruption_detection is not None
+                and self.interruption_detection.should_stop_consuming_microphone()
+            ):
+                return
 
         self.recording_audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
         self.drop_early_recording_audio_frames()
@@ -99,13 +112,11 @@ class AudioRecording:
 
         elif self.state == "waiting_for_next_frame":
             self.state = "replying"
-            self.speaking_frame_count = 0
 
         elif self.state == "replying":
             if self.reply_process is not None:
-                self.reply_process.kill()  # kill previous process to not reply on top
+                self.reply_process.kill()  # kill previous process to not have one reply on top of the other
             self.recorder.stop()
-            elevenlabs.play_audio_file_non_blocking("beep.mp3")
             audio_file = create_audio_file(self.recording_audio_buffer)
             logger.info("Built wav file")
 
@@ -147,6 +158,7 @@ class AudioRecording:
             ):
                 self.speaking_frame_count = 0
         else:
+            # Cut all empty audio from before to make it smaller
             if self.speaking_frame_count == 0:
                 self.recording_audio_buffer = self.recording_audio_buffer[
                     -frame_length:
@@ -168,18 +180,21 @@ class AudioRecording:
             self.state = "waiting_for_wakeup"
 
     def check_for_interruption(self, pcm, is_silence):
-        try:
-            (action, data) = self.reply_out_queue.get(block=False)
-            if action == "play_start":
-                self.interruption_detection = InterruptionDetection(data)
-            elif action == "reply_audio":
-                if self.interruption_detection is not None:
-                    self.interruption_detection.reply_audio = data
-        except Empty:
-            pass
-
         if self.interruption_detection is None:
             return
+
+        try:
+            (action, data) = self.reply_out_queue.get(block=False)
+            if action == "user_message_added":
+                self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
+            elif action == "play_start":
+                self.interruption_detection.audio_playback_process_pid = data
+                self.silence_frame_count = 0
+                self.speaking_frame_count = 0
+            elif action == "reply_audio":
+                self.interruption_detection.reply_audio = data
+        except Empty:
+            pass
 
         if self.interruption_detection.is_done():
             self.reset("waiting_for_silence")
@@ -189,13 +204,23 @@ class AudioRecording:
             )
             if interrupted:
                 logger.info("Interrupted")
+                if self.reply_process:
+                    self.reply_process.kill()
                 self.reset("waiting_for_silence")
 
 
 def reply(audio_file: BytesIO, reply_out_queue: Queue):
     transcription: Any = openai.Audio.transcribe("whisper-1", audio_file)
     logger.info("Transcription: %s", transcription["text"])
-    chatgpt.add_user_message(transcription["text"])
+    if len(transcription["text"]) > 1:
+        chatgpt.add_user_message(transcription["text"])
+    else:
+        logger.info("Transcription too small, probably a mistake, bailing out")
+        if chatgpt.conversation[-1]["role"] != "user":
+            return
+
+    elevenlabs.play_audio_file_non_blocking("beep.mp3")
+    reply_out_queue.put(("user_message_added", None))
 
     reply = chatgpt.reply()
 

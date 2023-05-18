@@ -2,7 +2,7 @@ from multiprocessing import Process, Queue
 from queue import Empty
 import librosa
 from scipy.spatial.distance import cosine
-from typing import Any, List
+from typing import Any, List, Optional
 import numpy as np
 import math
 
@@ -32,6 +32,9 @@ from lib.utils import terminate_pid_safely
 
 silence_threshold = 300  # same as from main
 frame_length = 512  # same as from main
+pre_interrupt_speaking_minimum = (
+    0.5 * 32
+)  # 0.5 seconds of speaking to interrupt before audio_playback is reproduced
 
 
 class InterruptionDetection:
@@ -40,15 +43,16 @@ class InterruptionDetection:
     reply_audio_skip_frames_after_first_sound: int
 
     accumulated_similarity: List[Any]
-    audio_playback_process_pid: int
+    audio_playback_process_pid: Optional[int]
     interrupted: bool = False
     done: bool = False
     interruption_check_process: Process
     interruption_check_in_queue: Queue
     interruption_check_out_queue: Queue
     total_checks_count: int
+    speaking_frame_count: int
 
-    def __init__(self, audio_playback_process_pid: int) -> None:
+    def __init__(self) -> None:
         self.reply_audio = []
         self.reply_audio_skip_frames = (
             frame_length * -28
@@ -57,10 +61,11 @@ class InterruptionDetection:
             -1
         )  # this will start counting only when first sound is heard, for feedback loops
         self.accumulated_similarity = []
-        self.audio_playback_process_pid = audio_playback_process_pid
+        self.audio_playback_process_pid = None
         self.interruption_check_in_queue = Queue()
         self.interruption_check_out_queue = Queue()
         self.total_checks_count = 0
+        self.speaking_frame_count = 0
 
         self.interruption_check_process = Process(
             target=check_next_frame,
@@ -77,18 +82,30 @@ class InterruptionDetection:
         terminate_pid_safely(self.audio_playback_process_pid)
         self.interruption_check_process.kill()
 
+    def interrupt(self):
+        self.interrupted = True
+        self.stop()
+
+    def should_stop_consuming_microphone(self):
+        return len(self.reply_audio) > 0
+
     def check_for_interruption(self, pcm, is_silence: bool):
         if self.interrupted:
             return True
 
         if len(self.reply_audio) == 0:
-            return False
+            if is_silence:
+                return False
+            else:
+                self.speaking_frame_count += 1
+                if self.speaking_frame_count > pre_interrupt_speaking_minimum:
+                    self.interrupt()
+                    return True
 
         try:
             signal = self.interruption_check_out_queue.get(block=False)
             if signal == "interrupt":
-                self.interrupted = True
-                self.stop()
+                self.interrupt()
                 return True
         except Empty:
             pass
