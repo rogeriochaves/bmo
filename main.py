@@ -46,8 +46,8 @@ RecordingState = Literal[
     "waiting_for_wakeup",
     "waiting_for_silence",
     "waiting_for_next_frame",
+    "start_reply",
     "replying",
-    "waiting_for_interruption",
 ]
 
 
@@ -77,7 +77,7 @@ class AudioRecording:
 
         if state == "waiting_for_silence":
             self.interruption_detection = None
-        elif state == "waiting_for_interruption":
+        elif state == "replying":
             self.interruption_detection = InterruptionDetection()
         else:
             self.speaking_frame_count = 0
@@ -96,14 +96,6 @@ class AudioRecording:
         rms = np.sqrt(np.mean(np.array(pcm) ** 2))
         is_silence = rms < silence_threshold
 
-        if self.state == "waiting_for_interruption":
-            self.check_for_interruption(pcm, is_silence)
-            if (
-                self.interruption_detection is not None
-                and self.interruption_detection.should_stop_consuming_microphone()
-            ):
-                return
-
         self.recording_audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
         self.drop_early_recording_audio_frames()
 
@@ -114,9 +106,9 @@ class AudioRecording:
             self.waiting_for_silence(is_silence)
 
         elif self.state == "waiting_for_next_frame":
-            self.state = "replying"
+            self.state = "start_reply"
 
-        elif self.state == "replying":
+        elif self.state == "start_reply":
             if self.reply_process is not None:
                 self.reply_process.kill()  # kill previous process to not have one reply on top of the other
             self.recorder.stop()
@@ -129,8 +121,11 @@ class AudioRecording:
             )
             self.reply_process.start()
 
-            self.reset("waiting_for_interruption")
+            self.reset("replying")
             self.recorder.start()
+
+        elif self.state == "replying":
+            self.replying_loop(pcm, is_silence)
 
     def drop_early_recording_audio_frames(self):
         if len(self.recording_audio_buffer) > (
@@ -182,7 +177,7 @@ class AudioRecording:
             self.speaking_frame_count = 0
             self.state = "waiting_for_wakeup"
 
-    def check_for_interruption(self, pcm, is_silence):
+    def replying_loop(self, pcm, is_silence):
         if self.interruption_detection is None:
             return
 
@@ -214,6 +209,10 @@ class AudioRecording:
                 logger.info("Interrupted")
                 if self.reply_process:
                     self.reply_process.kill()
+                # Capture the last few frames when interrupting the assistent, drop anything before that, since we don't want any echo feedbacks
+                self.recording_audio_buffer = self.recording_audio_buffer[
+                    -frame_length * 5 :
+                ]
                 self.reset("waiting_for_silence")
 
 
