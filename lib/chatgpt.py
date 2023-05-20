@@ -31,14 +31,8 @@ prompt = (
 
 initial_message: Message = {"role": "system", "content": prompt}
 
-conversation: Conversation = [initial_message]
 
-
-def add_user_message(user_message_content: str):
-    conversation.append({"role": "user", "content": user_message_content})
-
-
-def reply() -> Message:
+def reply(conversation: Conversation) -> Message:
     stream: Any = openai.ChatCompletion.create(
         model="gpt-3.5-turbo", messages=conversation, timeout=1, stream=True
     )
@@ -55,6 +49,5 @@ def reply() -> Message:
         "role": "assistant",
         "content": full_message,  # type: ignore
     }
-    conversation.append(assistant_message)
 
     return assistant_message

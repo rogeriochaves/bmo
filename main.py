@@ -8,6 +8,7 @@ from lib.interruption_detection import InterruptionDetection  # has to be the se
 load_dotenv()
 from lib.porcupine import wakeup_keywords
 import lib.chatgpt as chatgpt
+from lib.chatgpt import Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
 import lib.whisper as whisper
 import os
@@ -59,6 +60,7 @@ class AudioRecording:
     reply_process: Optional[Process] = None
     reply_out_queue: Queue
     interruption_detection: Optional[InterruptionDetection] = None
+    conversation: Conversation = [initial_message]
 
     def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
@@ -123,7 +125,7 @@ class AudioRecording:
 
             self.reply_out_queue = Queue()
             self.reply_process = Process(
-                target=reply, args=(audio_file, self.reply_out_queue)
+                target=reply, args=(self.conversation, audio_file, self.reply_out_queue)
             )
             self.reply_process.start()
 
@@ -186,10 +188,13 @@ class AudioRecording:
 
         try:
             (action, data) = self.reply_out_queue.get(block=False)
-            if action == "user_message_added":
+            if action == "user_message":
                 self.recording_audio_buffer = self.recording_audio_buffer[
                     -frame_length:
                 ]
+                self.conversation.append(data)
+            elif action == "assistent_message":
+                self.conversation.append(data)
             elif action == "play_start":
                 self.interruption_detection.audio_playback_process_pid = data
                 self.silence_frame_count = 0
@@ -212,21 +217,23 @@ class AudioRecording:
                 self.reset("waiting_for_silence")
 
 
-def reply(audio_file: BytesIO, reply_out_queue: Queue):
+def reply(conversation: Conversation, audio_file: BytesIO, reply_out_queue: Queue):
     try:
         transcription = whisper.transcribe("whisper-1", audio_file)
         logger.info("Transcription: %s", transcription["text"])
-        if len(transcription["text"]) > 1:
-            chatgpt.add_user_message(transcription["text"])
+        if len(transcription["text"].strip()) > 1:
+            user_message: Message = {"role": "user", "content": transcription["text"]}
+            conversation.append(user_message)
+            reply_out_queue.put(("user_message", user_message))
         else:
             logger.info("Transcription too small, probably a mistake, bailing out")
-            if chatgpt.conversation[-1]["role"] != "user":
+            if conversation[-1]["role"] != "user":
                 return
 
         elevenlabs.play_audio_file_non_blocking("beep.mp3")
-        reply_out_queue.put(("user_message_added", None))
 
-        reply = chatgpt.reply()
+        reply = chatgpt.reply(conversation)
+        reply_out_queue.put(("assistent_message", reply))
 
         elevenlabs.play_audio_file_non_blocking("beep2.mp3")
         logger.info("Reply: %s", reply["content"])
