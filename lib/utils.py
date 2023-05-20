@@ -1,5 +1,6 @@
 from typing import Optional
 import psutil
+import numpy as np
 
 
 def terminate_pid_safely(pid: Optional[int]):
@@ -12,3 +13,7 @@ def terminate_pid_safely(pid: Optional[int]):
     process = psutil.Process(pid)
     if process.status() == psutil.STATUS_RUNNING:
         process.terminate()
+
+
+def calculate_volume(pcm):
+    return np.sqrt(np.mean(np.array(pcm) ** 2))
