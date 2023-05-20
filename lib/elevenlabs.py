@@ -20,6 +20,8 @@ logger = logging.getLogger()
 
 
 def text_to_speech(text: str):
+    if os.getenv("DEBUG_MODE"):
+        return []
     audio_stream = generate(
         api_key=eleven_labs_api_key,
         model="eleven_multilingual_v1",
@@ -53,6 +55,12 @@ def play_audio_file(audio_file, reply_out_queue: Queue):
 
 
 def play(audio_iter, reply_out_queue: Queue):
+    if os.getenv("DEBUG_MODE"):
+        with open("static/sample_long_audio.mp3", "rb") as file:
+            audio_iter = file.read()
+
+        audio_iter = [audio_iter[i : i + 2048] for i in range(0, len(audio_iter), 2048)]
+
     args = ["ffplay", "-autoexit", "-nodisp", "-"]
     proc = subprocess.Popen(
         args=args,
