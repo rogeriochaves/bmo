@@ -1,3 +1,4 @@
+import multiprocessing
 from multiprocessing import Process, Queue
 from queue import Empty
 from typing import Any, List, Optional
@@ -24,27 +25,23 @@ pre_interrupt_speaking_minimum = (
 
 
 class InterruptionDetection:
-    reply_audio: List[int]
-    reply_audio_skip_frames: int
-    reply_audio_skip_frames_after_first_sound: int
-
+    reply_audio_started: bool
     accumulated_similarity: List[Any]
     audio_playback_process_pid: Optional[int]
-    interrupted: bool = False
-    done: bool = False
+    interrupted: bool
+    done: bool
     interruption_check_process: Process
     interruption_check_in_queue: Queue
     interruption_check_out_queue: Queue
     speaking_frame_count: int
 
     def __init__(self) -> None:
-        self.reply_audio = []
-        self.reply_audio_skip_frames = (
-            frame_length * -28
-        )  # this is the guessed delay between receiving the first buffer and ffplay starts playing it
+        self.reply_audio_started = False
+        self.interrupted = False
+        self.done = False
         self.audio_playback_process_pid = None
-        self.interruption_check_in_queue = Queue()
-        self.interruption_check_out_queue = Queue()
+        self.interruption_check_in_queue = multiprocessing.Queue()
+        self.interruption_check_out_queue = multiprocessing.Queue()
         self.speaking_frame_count = 0
 
         self.interruption_check_process = Process(
@@ -55,6 +52,9 @@ class InterruptionDetection:
 
     def is_done(self):
         return self.done
+
+    def start_reply_interruption_check(self):
+        self.reply_audio_started = True
 
     def stop(self):
         self.interruption_check_in_queue.close()
@@ -68,13 +68,13 @@ class InterruptionDetection:
         self.stop()
 
     def should_stop_consuming_microphone(self):
-        return len(self.reply_audio) > 0
+        return self.reply_audio_started
 
-    def check_for_interruption(self, pcm, is_silence: bool):
+    def check_for_interruption(self, pcm: List[Any], is_silence: bool):
         if self.interrupted:
             return True
 
-        if len(self.reply_audio) == 0:
+        if self.reply_audio_started:
             if is_silence:
                 return False
             else:
@@ -90,15 +90,6 @@ class InterruptionDetection:
                 return True
         except Empty:
             pass
-
-        self.reply_audio_skip_frames += frame_length
-
-        if self.reply_audio_skip_frames < 0:
-            return False
-
-        if self.reply_audio_skip_frames >= len(self.reply_audio):
-            self.stop()
-            return False
 
         self.interruption_check_in_queue.put(pcm)
         return False

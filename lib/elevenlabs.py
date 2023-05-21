@@ -1,12 +1,9 @@
-from io import BytesIO
 from multiprocessing import Queue
 import os
-import struct
 import subprocess
-import wave
 from elevenlabs import generate, Voice, VoiceSettings
 from lib.delta_logging import logging
-import ffmpeg
+from lib.types import ReplyOutQueue
 
 eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 
@@ -45,14 +42,14 @@ def play_audio_file_non_blocking(audio_file):
     )
 
 
-def play_audio_file(audio_file, reply_out_queue: Queue):
+def play_audio_file(audio_file, reply_out_queue: ReplyOutQueue):
     filename = f"static/{audio_file}"
     with open(filename, "rb") as file:
         audio_item = [bytearray(file.read())]
         play(audio_item, reply_out_queue)
 
 
-def play(audio_iter, reply_out_queue: Queue):
+def play(audio_iter, reply_out_queue: ReplyOutQueue):
     if os.getenv("DEBUG_MODE"):
         with open("static/sample_long_audio.mp3", "rb") as file:
             audio_iter = file.read()
@@ -75,36 +72,12 @@ def play(audio_iter, reply_out_queue: Queue):
         if not first:
             first = True
             logging.info("First audio chunk arrived")
+            reply_out_queue.put(("reply_audio_started", None))
 
         if proc.poll() is not None:
             return
         proc.stdin.write(audio_chunk)  # type: ignore
 
-        reply_buffer.extend(audio_chunk)
-        # TODO: optimize, send only the first buffer then checkpoints
-        if len(reply_buffer) >= 512:
-            pcm_bytes = mp3_to_pcm(reply_buffer)
-            pcm_ints = list(struct.unpack("h" * (len(pcm_bytes) // 2), pcm_bytes))
-            reply_out_queue.put(("reply_audio", pcm_ints))
-
     proc.stdin.close()  # type: ignore
     proc.wait()
-
-
-def mp3_to_pcm(mp3_bytes):
-    try:
-        # Convert the audio file to PCM using ffmpeg
-        wav_bytes, err = (
-            ffmpeg.input("pipe:0", format="mp3")
-            .output("pipe:1", format="wav", acodec="pcm_s16le", ac=1, ar="16k")
-            .run(input=mp3_bytes, capture_stdout=True, capture_stderr=True)
-        )
-
-        wav_file = wave.open(BytesIO(wav_bytes), "rb")
-        frames = wav_file.readframes(wav_file.getnframes())
-        wav_file.close()
-        return frames
-    except ffmpeg.Error as e:
-        print("FFmpeg error:")
-        print(e.stderr.decode())
-        raise e
+    reply_out_queue.put(("reply_audio_ended", None))

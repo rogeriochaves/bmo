@@ -9,6 +9,7 @@ from typing_extensions import Literal
 from lib.interruption_detection import InterruptionDetection
 from lib.porcupine import wakeup_keywords
 from lib.utils import calculate_volume
+from lib.types import ReplyOutQueue
 import lib.chatgpt as chatgpt
 from lib.chatgpt import Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
@@ -59,7 +60,7 @@ class AudioRecording:
     recording_audio_buffer: bytearray
     recorder: PvRecorder
     reply_process: Optional[Process] = None
-    reply_out_queue: Queue
+    reply_out_queue: ReplyOutQueue
     interruption_detection: Optional[InterruptionDetection] = None
     conversation: Conversation = [initial_message]
 
@@ -198,8 +199,10 @@ class AudioRecording:
                 self.interruption_detection.audio_playback_process_pid = data
                 self.silence_frame_count = 0
                 self.speaking_frame_count = 0
-            elif action == "reply_audio":
-                self.interruption_detection.reply_audio = data
+            elif action == "reply_audio_started":
+                self.interruption_detection.start_reply_interruption_check()
+            elif action == "reply_audio_ended":
+                self.interruption_detection.stop()
         except Empty:
             pass
 
