@@ -8,8 +8,6 @@ from elevenlabs import generate, Voice, VoiceSettings
 from lib.delta_logging import logging
 import ffmpeg
 
-from lib.interruption_detection import InterruptionDetection
-
 eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 
 VOICE_SETTINGS_STABILITY = 0.75

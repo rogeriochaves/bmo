@@ -1,13 +1,14 @@
+from dotenv import load_dotenv  # has to be the first import
+
+load_dotenv()
+from lib.delta_logging import logging, red, reset  # has to be the second
 from multiprocessing import Process, Queue
 from queue import Empty
 from typing import Any, List, Optional
 from typing_extensions import Literal
-from lib.delta_logging import logging, red, reset  # has to be the first import
-from dotenv import load_dotenv
-from lib.interruption_detection import InterruptionDetection  # has to be the second
-
-load_dotenv()
+from lib.interruption_detection import InterruptionDetection
 from lib.porcupine import wakeup_keywords
+from lib.utils import calculate_volume
 import lib.chatgpt as chatgpt
 from lib.chatgpt import Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
@@ -19,7 +20,6 @@ import pvporcupine
 from pvrecorder import PvRecorder
 from io import BytesIO
 import openai
-import numpy as np
 
 picovoice_access_key = os.environ["PICOVOICE_ACCESS_KEY"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -94,8 +94,6 @@ class AudioRecording:
 
     def next_frame(self):
         pcm = self.recorder.read()
-        rms = np.sqrt(np.mean(np.array(pcm) ** 2))
-        is_silence = rms < silence_threshold
 
         self.recording_audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
         self.drop_early_recording_audio_frames()
@@ -104,7 +102,7 @@ class AudioRecording:
             self.waiting_for_wakeup(pcm)
 
         elif self.state == "waiting_for_silence":
-            self.waiting_for_silence(is_silence)
+            self.waiting_for_silence(pcm)
 
         elif self.state == "waiting_for_next_frame":
             self.state = "start_reply"
@@ -126,7 +124,11 @@ class AudioRecording:
             self.recorder.start()
 
         elif self.state == "replying":
-            self.replying_loop(pcm, is_silence)
+            self.replying_loop(pcm)
+
+    def is_silence(self, pcm):
+        rms = calculate_volume(pcm)
+        return rms < silence_threshold
 
     def drop_early_recording_audio_frames(self):
         if len(self.recording_audio_buffer) > (
@@ -145,7 +147,8 @@ class AudioRecording:
             logger.info("Detected wakeup word #%s", trigger)
             self.state = "waiting_for_next_frame"
 
-    def waiting_for_silence(self, is_silence: bool):
+    def waiting_for_silence(self, pcm: List[Any]):
+        is_silence = self.is_silence(pcm)
         emoji = "🔈" if is_silence else "🔊"
         print(f"🔴 {red}Listening... {emoji} {reset}", end="\r", flush=True)
 
@@ -178,7 +181,7 @@ class AudioRecording:
             self.speaking_frame_count = 0
             self.state = "waiting_for_wakeup"
 
-    def replying_loop(self, pcm, is_silence):
+    def replying_loop(self, pcm: List[Any]):
         if self.interruption_detection is None:
             return
 
@@ -203,6 +206,7 @@ class AudioRecording:
         if self.interruption_detection.is_done():
             self.reset("waiting_for_silence")
         else:
+            is_silence = self.is_silence(pcm)
             interrupted = self.interruption_detection.check_for_interruption(
                 pcm, is_silence
             )
