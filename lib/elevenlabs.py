@@ -3,7 +3,6 @@ import os
 import subprocess
 from elevenlabs import generate, Voice, VoiceSettings
 from lib.delta_logging import logging
-from lib.types import ReplyOutQueue
 
 eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 
@@ -42,14 +41,14 @@ def play_audio_file_non_blocking(audio_file):
     )
 
 
-def play_audio_file(audio_file, reply_out_queue: ReplyOutQueue):
+def play_audio_file(audio_file, reply_out_queue: Queue):
     filename = f"static/{audio_file}"
     with open(filename, "rb") as file:
         audio_item = [bytearray(file.read())]
         play(audio_item, reply_out_queue)
 
 
-def play(audio_iter, reply_out_queue: ReplyOutQueue):
+def play(audio_iter, reply_out_queue: Queue):
     if os.getenv("DEBUG_MODE"):
         with open("static/sample_long_audio.mp3", "rb") as file:
             audio_iter = file.read()
