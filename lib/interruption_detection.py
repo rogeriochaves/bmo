@@ -34,6 +34,7 @@ class InterruptionDetection:
     interruption_check_in_queue: Queue
     interruption_check_out_queue: Queue
     speaking_frame_count: int
+    pause_frame_count: int
 
     def __init__(self) -> None:
         self.reply_audio_started = False
@@ -43,6 +44,7 @@ class InterruptionDetection:
         self.interruption_check_in_queue = multiprocessing.Queue()
         self.interruption_check_out_queue = multiprocessing.Queue()
         self.speaking_frame_count = 0
+        self.pause_frame_count = 0
 
         self.interruption_check_process = Process(
             target=check_next_frame,
@@ -50,10 +52,14 @@ class InterruptionDetection:
         )
         self.interruption_check_process.start()
 
+    def pause_for(self, n_frames: int):
+        self.pause_frame_count = n_frames
+
     def is_done(self):
         return self.done
 
-    def start_reply_interruption_check(self):
+    def start_reply_interruption_check(self, audio_playback_process_id: int):
+        self.audio_playback_process_pid = audio_playback_process_id
         self.reply_audio_started = True
 
     def stop(self):
@@ -74,7 +80,11 @@ class InterruptionDetection:
         if self.interrupted:
             return True
 
-        if self.reply_audio_started:
+        if self.pause_frame_count > 0:
+            self.pause_frame_count -= 1
+            return False
+
+        if not self.reply_audio_started:
             if is_silence:
                 return False
             else:
@@ -101,7 +111,7 @@ def check_next_frame(in_queue: Queue, out_queue: Queue):
     how_many_initial_batchs_to_define = 5
 
     initial_batches_volume = []
-    mean_volume = 0
+    max_volume = 0
 
     stop_counts = 0
     loops_since_last_stop = 0
@@ -119,8 +129,8 @@ def check_next_frame(in_queue: Queue, out_queue: Queue):
         if len(initial_batches_volume) < how_many_initial_batchs_to_define:
             initial_batches_volume.append(calculate_volume(pcm_batch))
             if len(initial_batches_volume) == how_many_initial_batchs_to_define:
-                mean_volume = max(
-                    float(np.mean(initial_batches_volume)), silence_threshold
+                max_volume = max(
+                    float(np.quantile(initial_batches_volume, 0.9)), silence_threshold
                 )
                 batch_size = 4
 
@@ -135,7 +145,7 @@ def check_next_frame(in_queue: Queue, out_queue: Queue):
 
         volume_pcm = calculate_volume(pcm_batch)
 
-        if volume_pcm >= mean_volume:
+        if volume_pcm >= max_volume:
             stop_counts += 1
             loops_since_last_stop = 0
 

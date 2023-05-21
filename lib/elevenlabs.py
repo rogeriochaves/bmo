@@ -64,14 +64,11 @@ def play(audio_iter, reply_out_queue: Queue):
     )
 
     first = False
-    reply_buffer = bytearray()
-    reply_out_queue.put(("play_start", proc.pid))
-
     for audio_chunk in audio_iter:
         if not first:
             first = True
             logging.info("First audio chunk arrived")
-            reply_out_queue.put(("reply_audio_started", None))
+            reply_out_queue.put(("reply_audio_started", proc.pid))
 
         if proc.poll() is not None:
             return

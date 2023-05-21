@@ -194,12 +194,13 @@ class AudioRecording:
                 self.conversation.append(data)
             elif action == "assistent_message":
                 self.conversation.append(data)
-            elif action == "play_start":
-                self.interruption_detection.audio_playback_process_pid = data
+            elif action == "play_beep":
+                self.interruption_detection.pause_for(32)
+                elevenlabs.play_audio_file_non_blocking(data)
+            elif action == "reply_audio_started":
                 self.silence_frame_count = 0
                 self.speaking_frame_count = 0
-            elif action == "reply_audio_started":
-                self.interruption_detection.start_reply_interruption_check()
+                self.interruption_detection.start_reply_interruption_check(data)
             elif action == "reply_audio_ended":
                 self.interruption_detection.stop()
         except Empty:
@@ -236,12 +237,12 @@ def reply(conversation: Conversation, audio_file: BytesIO, reply_out_queue: Queu
             if conversation[-1]["role"] != "user":
                 return
 
-        elevenlabs.play_audio_file_non_blocking("beep.mp3")
+        reply_out_queue.put(("play_beep", "beep.mp3"))
 
         reply = chatgpt.reply(conversation)
         reply_out_queue.put(("assistent_message", reply))
 
-        elevenlabs.play_audio_file_non_blocking("beep2.mp3")
+        reply_out_queue.put(("play_beep", "beep2.mp3"))
         logger.info("Reply: %s", reply["content"])
 
         audio_stream = elevenlabs.text_to_speech(reply["content"])
