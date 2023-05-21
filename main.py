@@ -1,6 +1,7 @@
 from multiprocessing import Process, Queue
 from queue import Empty
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Optional
+from typing_extensions import Literal
 from lib.delta_logging import logging, red, reset  # has to be the first import
 from dotenv import load_dotenv
 from lib.interruption_detection import InterruptionDetection  # has to be the second

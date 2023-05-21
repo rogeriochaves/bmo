@@ -1,5 +1,6 @@
 import os
-from typing import Any, List, Literal, TypedDict
+from typing import Any, List
+from typing_extensions import Literal, TypedDict
 
 import openai
 

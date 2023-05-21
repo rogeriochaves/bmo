@@ -1,6 +1,6 @@
 # Setup
 
-Use python 3.9+
+Use python 3.7, because that's the latest one (as of time of writing) where numpy works out of the box on raspberry pi
 
 Install dependencies:
 
