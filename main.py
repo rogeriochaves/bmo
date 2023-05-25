@@ -12,7 +12,6 @@ from lib.utils import calculate_volume
 import lib.chatgpt as chatgpt
 from lib.chatgpt import Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
-import lib.whisper as whisper
 from lib.whisper import WhisperTranscriber
 import os
 import struct
@@ -76,9 +75,9 @@ class AudioRecording:
         self.state = state
 
         self.silence_frame_count = 0
-        # self.transcriber.start()
 
         if state == "waiting_for_silence":
+            self.transcriber.restart()
             self.interruption_detection = None
         elif state == "replying":
             self.interruption_detection = InterruptionDetection()
@@ -107,8 +106,6 @@ class AudioRecording:
             self.waiting_for_silence(pcm)
 
         elif self.state == "waiting_for_next_frame":
-            # if len(self.transcriptions) == 0:
-            self.transcribe_buffer()
             self.state = "start_reply"
 
         elif self.state == "start_reply":
@@ -116,12 +113,6 @@ class AudioRecording:
                 self.reply_process.kill()  # kill previous process to not have one reply on top of the other
             self.recorder.stop()
 
-            # transcriptions_done, _ = await asyncio.wait(
-            #     self.transcriptions, timeout=10 if len(self.transcriptions) < 2 else 1
-            # )
-            # transcriptions_list = [t.result() for t in transcriptions_done if t.done()]
-            # transcription = " ".join(transcriptions_list)
-            # self.transcription_in_queue.put("done")
             transcription = self.transcriber.transcribe_and_stop()
 
             self.reply_out_queue = Queue()
@@ -163,19 +154,10 @@ class AudioRecording:
             elevenlabs.play_audio_file_non_blocking("beep2.mp3")
             self.state = "waiting_for_next_frame"
 
-    def transcribe_buffer(self):
-        # self.transcriptions.append(whisper.async_transcribe(self.executor, audio_file))
-        self.transcriber.consume(self.recording_audio_buffer)
-        self.recording_audio_buffer = bytearray()
-
     def waiting_for_silence(self, pcm: List[Any]):
         is_silence = self.is_silence(pcm)
         emoji = "🔈" if is_silence else "🔊"
         print(f"🔴 {red}Listening... {emoji} {reset}", end="\r", flush=True)
-
-        transcription_chunk_size = frame_length * 32 * 4  # 4s of audio
-        if len(self.recording_audio_buffer) >= transcription_chunk_size:
-            self.transcribe_buffer()
 
         if is_silence:
             self.silence_frame_count += 1

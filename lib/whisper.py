@@ -1,6 +1,5 @@
-from io import BytesIO
 import subprocess
-import wave
+from typing import Optional
 
 
 def transcribe(file) -> str:
@@ -27,13 +26,14 @@ def transcribe(file) -> str:
 
 
 class WhisperTranscriber:
-    whispercpp: subprocess.Popen[bytes]
+    whispercpp: Optional[subprocess.Popen[bytes]]
     first: bool
 
     def __init__(self) -> None:
-        self.start()
+        self.whispercpp = None
 
-    def start(self):
+    def restart(self):
+        self.stop()
         self.whispercpp = subprocess.Popen(
             args=[
                 "./whisper.cpp/stream",
@@ -44,10 +44,7 @@ class WhisperTranscriber:
                 "--step",
                 "500",
                 "--length",
-                "5000"
-                # "-nt",
-                # "-f",
-                # "-",
+                "5000",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -55,26 +52,17 @@ class WhisperTranscriber:
         )
         self.first = True
 
-    def consume(self, audio_buffer):
-        pass
-
-    def create_audio_file(self, audio_buffer):
-        virtual_file = BytesIO()
-        wav_file = wave.open(virtual_file, "wb")
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(16000)
-        wav_file.writeframes(audio_buffer)
-        wav_file.close()
-        virtual_file.name = "recording.wav"
-        virtual_file.seek(0)
-
-        return virtual_file
-
     def stop(self):
+        if self.whispercpp is None:
+            return
+
         self.whispercpp.stdin.close()  # type: ignore
+        self.whispercpp = None
 
     def transcribe_and_stop(self):
+        if self.whispercpp is None:
+            return
+
         self.whispercpp.terminate()
         output, _ = self.whispercpp.communicate()
         output_lines = output.decode().split("\n")

@@ -1,7 +1,6 @@
 python-dotenv==0.21.1
 pvporcupine==2.2.0
 pvrecorder==1.1.1
-wave==0.0.2
 openai==0.27.4
 ffmpeg-python==0.2.0
 elevenlabs==0.2.15
