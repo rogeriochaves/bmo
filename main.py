@@ -1,3 +1,4 @@
+import time
 from dotenv import load_dotenv  # has to be the first import
 
 load_dotenv()
@@ -44,7 +45,6 @@ silence_time_to_standby = (
 RecordingState = Literal[
     "waiting_for_wakeup",
     "waiting_for_silence",
-    "waiting_for_next_frame",
     "start_reply",
     "replying",
 ]
@@ -57,6 +57,7 @@ class AudioRecording:
     recording_audio_buffer: bytearray
     recorder: PvRecorder
     reply_process: Optional[Process] = None
+    reply_in_queue: Queue
     reply_out_queue: Queue
     interruption_detection: Optional[InterruptionDetection] = None
     conversation: Conversation = [initial_message]
@@ -64,7 +65,17 @@ class AudioRecording:
 
     def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
+        self.reply_in_queue = Queue()
         self.reply_out_queue = Queue()
+        self.reply_process = Process(
+            target=reply,
+            args=(
+                self.conversation,
+                self.reply_in_queue,
+                self.reply_out_queue,
+            ),
+        )
+        self.reply_process.start()
         self.recording_audio_buffer = bytearray()
         self.speaking_frame_count = 0
         self.transcriber = WhisperTranscriber()
@@ -106,26 +117,12 @@ class AudioRecording:
         elif self.state == "waiting_for_silence":
             self.waiting_for_silence(pcm)
 
-        elif self.state == "waiting_for_next_frame":
-            self.state = "start_reply"
-
         elif self.state == "start_reply":
-            if self.reply_process is not None:
-                self.reply_process.kill()  # kill previous process to not have one reply on top of the other
-            self.recorder.stop()
-
             transcription = self.transcriber.transcribe_and_stop()
+            logger.info("Transcription: %s", transcription)
+            self.reply_in_queue.put(transcription)
 
-            self.reply_out_queue = Queue()
-            self.reply_process = Process(
-                target=reply,
-                args=(
-                    self.conversation,
-                    transcription,
-                    self.reply_out_queue,
-                ),
-            )
-            self.reply_process.start()
+            self.recorder.stop()
 
             self.reset("replying")
             self.recorder.start()
@@ -153,7 +150,7 @@ class AudioRecording:
         if trigger >= 0:
             logger.info("Detected wakeup word #%s", trigger)
             elevenlabs.play_audio_file_non_blocking("beep2.mp3")
-            self.state = "waiting_for_next_frame"
+            self.state = "start_reply"
 
     def waiting_for_silence(self, pcm: List[Any]):
         is_silence = self.is_silence(pcm)
@@ -181,7 +178,7 @@ class AudioRecording:
             and self.speaking_frame_count >= speaking_minimum
         ):
             logger.info("Detected silence a while after speaking, giving a reply")
-            self.state = "waiting_for_next_frame"
+            self.state = "start_reply"
 
         if self.silence_frame_count >= silence_time_to_standby:
             logger.info("Long silence time, going back to waiting for the wakeup word")
@@ -234,27 +231,26 @@ class AudioRecording:
                 self.reset("waiting_for_silence")
 
 
-def reply(conversation: Conversation, transcription: str, reply_out_queue: Queue):
-    try:
-        logger.info("Transcription: %s", transcription)
-        if len(transcription.strip()) > 1:
-            user_message: Message = {"role": "user", "content": transcription}
-            conversation.append(user_message)
-            reply_out_queue.put(("user_message", user_message))
-        else:
-            logger.info("Transcription too small, probably a mistake, bailing out")
-            reply_out_queue.put(("reply_audio_ended", None))
-            if conversation[-1]["role"] != "user":
-                return
+def reply(conversation: Conversation, reply_in_queue: Queue, reply_out_queue: Queue):
+    while True:
+        try:
+            transcription = reply_in_queue.get(block=True)
+            if len(transcription.strip()) > 1:
+                user_message: Message = {"role": "user", "content": transcription}
+                conversation.append(user_message)
+                reply_out_queue.put(("user_message", user_message))
+            else:
+                logger.info("Transcription too small, probably a mistake, bailing out")
+                reply_out_queue.put(("reply_audio_ended", None))
+                if conversation[-1]["role"] != "user":
+                    return
 
-        reply_out_queue.put(("play_beep", "beep.mp3"))
+            reply_out_queue.put(("play_beep", "beep.mp3"))
 
-        reply = chatgpt.reply(conversation, reply_out_queue)
-
-        logger.info("Reply: %s", reply["content"])
-    except Exception:
-        logging.exception("Exception thrown in reply")
-        elevenlabs.play_audio_file("error.mp3", reply_out_queue)
+            chatgpt.reply(conversation, reply_out_queue)
+        except Exception:
+            logging.exception("Exception thrown in reply")
+            elevenlabs.play_audio_file("error.mp3", reply_out_queue)
 
 
 def main():
