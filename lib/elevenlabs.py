@@ -128,15 +128,12 @@ class ElevenLabsPlayer:
             self.audio_chunks[index].append(audio_chunk)
 
             if index == self.playing_index:
-                self.play_next_chunks(keep=0)
+                self.play_next_chunks()
 
-        # self.audio_chunks[index] = self.audio_chunks[index][
-        #     :-1  # drop the last few frames to trim the ending silence of elevenlabs
-        # ]
         self.audio_chunks[index].append("done")
         self.play_next_chunks()
 
-    def play_next_chunks(self, keep=0):
+    def play_next_chunks(self):
         if self.playing_index not in self.audio_chunks:
             if self.requested_to_stop:
                 self._stop()
@@ -145,7 +142,7 @@ class ElevenLabsPlayer:
         if self.ffplay.poll() is not None:
             return
 
-        while len(self.audio_chunks[self.playing_index]) > keep:
+        while len(self.audio_chunks[self.playing_index]) > 0:
             audio_chunk = self.audio_chunks[self.playing_index].pop(0)
             if audio_chunk == "done":
                 self.playing_index += 1
