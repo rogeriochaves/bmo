@@ -77,6 +77,7 @@ class InterruptionDetection:
         return self.reply_audio_started
 
     def check_for_interruption(self, pcm: List[Any], is_silence: bool):
+        return False
         if self.interrupted:
             return True
 

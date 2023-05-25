@@ -6,6 +6,10 @@ from typing_extensions import Literal, TypedDict
 import openai
 
 from lib.elevenlabs import ElevenLabsPlayer
+import lib.delta_logging as delta_logging
+from lib.delta_logging import logging
+
+logger = logging.getLogger()
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
@@ -45,19 +49,32 @@ def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
 
     full_message = ""
     new_word = ""
+    first = True
+
     for response in stream:
-        if "content" in response.choices[0].delta:
-            token = response.choices[0].delta.content
-            full_message += token
-            new_word += token
-            if len(new_word.split(" ")) > 10:
-                splitted = (new_word + " ").split(" ")
-                to_say = " ".join(splitted[:-2])
-                new_word = " ".join(splitted[-2:-1])
-                player.consume(to_say)
-                # play_in_queue.put(("word", to_say))
+        if "content" not in response.choices[0].delta:
+            continue
+
+        token = response.choices[0].delta.content
+        if first:
+            delta_logging.handler.terminator = ""
+            logger.info("Chat GPT started replying: %s", token)
+            delta_logging.handler.terminator = "\n"
+            first = False
+        else:
+            print(token, end="", flush=True)
+
+        full_message += token
+        new_word += token
+        if len(new_word.split(" ")) > 10:
+            splitted = (new_word + " ").split(" ")
+            to_say = " ".join(splitted[:-2])
+            new_word = " ".join(splitted[-2:-1])
+            player.consume(to_say)
+
         if len(full_message.split(" ")) > 100:
             break
+    print("")
 
     player.consume(new_word)
     player.stop()

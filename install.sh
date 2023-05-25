@@ -2,6 +2,10 @@
 
 set -eo pipefail
 
-sudo apt-get install libatlas-base-dev
+if [ "$(uname)" == "Darwin" ]; then
+  brew install libunistring sdl2
+else
+  sudo apt-get install -y libsdl2-dev
+fi
 
 pip install -r requirements.txt

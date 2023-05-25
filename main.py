@@ -13,17 +13,12 @@ import lib.chatgpt as chatgpt
 from lib.chatgpt import Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
 import lib.whisper as whisper
-from lib.whisper import TranscriptionResult
+from lib.whisper import WhisperTranscriber
 import os
 import struct
-import wave
 import pvporcupine
 from pvrecorder import PvRecorder
-from io import BytesIO
 import openai
-import asyncio
-from asyncio import Future
-from concurrent.futures import ThreadPoolExecutor
 
 picovoice_access_key = os.environ["PICOVOICE_ACCESS_KEY"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -40,7 +35,7 @@ buffer_size_on_active_listening = frame_length * 32 * 60  # keeps 60s of audio
 sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
 silence_threshold = 300  # maybe need to be adjusted
 # TODO: reduce to 1s and stop if needed
-silence_limit = 1 * sample_rate // frame_length  # 1.5 seconds of silence
+silence_limit = 0.5 * sample_rate // frame_length  # 0.5 seconds of silence
 speaking_minimum = 0.3 * sample_rate // frame_length  # 0.3 seconds of speaking
 silence_time_to_standby = (
     10 * sample_rate // frame_length
@@ -66,24 +61,22 @@ class AudioRecording:
     reply_out_queue: Queue
     interruption_detection: Optional[InterruptionDetection] = None
     conversation: Conversation = [initial_message]
-    executor: ThreadPoolExecutor
-    transcriptions: List[Future[TranscriptionResult]]
+    transcriber: WhisperTranscriber
 
-    def __init__(self, recorder: PvRecorder, executor: ThreadPoolExecutor) -> None:
+    def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
-        self.executor = executor
         self.reply_out_queue = Queue()
         self.recording_audio_buffer = bytearray()
         self.speaking_frame_count = 0
-        self.transcriptions = []
-        self.reset("waiting_for_wakeup")
+        self.transcriber = WhisperTranscriber()
+        self.reset("waiting_for_silence")
 
     def reset(self, state):
         self.recorder.start()
         self.state = state
 
         self.silence_frame_count = 0
-        self.transcriptions = []
+        # self.transcriber.start()
 
         if state == "waiting_for_silence":
             self.interruption_detection = None
@@ -101,7 +94,7 @@ class AudioRecording:
         if self.interruption_detection:
             self.interruption_detection.stop()
 
-    async def next_frame(self):
+    def next_frame(self):
         pcm = self.recorder.read()
 
         self.recording_audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
@@ -114,8 +107,8 @@ class AudioRecording:
             self.waiting_for_silence(pcm)
 
         elif self.state == "waiting_for_next_frame":
-            if len(self.transcriptions) == 0:
-                self.transcribe_buffer()
+            # if len(self.transcriptions) == 0:
+            self.transcribe_buffer()
             self.state = "start_reply"
 
         elif self.state == "start_reply":
@@ -123,16 +116,22 @@ class AudioRecording:
                 self.reply_process.kill()  # kill previous process to not have one reply on top of the other
             self.recorder.stop()
 
-            transcriptions_done, _ = await asyncio.wait(
-                self.transcriptions, timeout=10 if len(self.transcriptions) < 2 else 1
-            )
-            transcriptions_list = [t.result() for t in transcriptions_done if t.done()]
-            transcription = " ".join([t["text"] for t in transcriptions_list])
+            # transcriptions_done, _ = await asyncio.wait(
+            #     self.transcriptions, timeout=10 if len(self.transcriptions) < 2 else 1
+            # )
+            # transcriptions_list = [t.result() for t in transcriptions_done if t.done()]
+            # transcription = " ".join(transcriptions_list)
+            # self.transcription_in_queue.put("done")
+            transcription = self.transcriber.transcribe_and_stop()
 
             self.reply_out_queue = Queue()
             self.reply_process = Process(
                 target=reply,
-                args=(self.conversation, transcription, self.reply_out_queue),
+                args=(
+                    self.conversation,
+                    transcription,
+                    self.reply_out_queue,
+                ),
             )
             self.reply_process.start()
 
@@ -165,10 +164,8 @@ class AudioRecording:
             self.state = "waiting_for_next_frame"
 
     def transcribe_buffer(self):
-        audio_file = create_audio_file(self.recording_audio_buffer)
-        self.transcriptions.append(
-            whisper.async_transcribe(self.executor, "whisper-1", audio_file)
-        )
+        # self.transcriptions.append(whisper.async_transcribe(self.executor, audio_file))
+        self.transcriber.consume(self.recording_audio_buffer)
         self.recording_audio_buffer = bytearray()
 
     def waiting_for_silence(self, pcm: List[Any]):
@@ -276,35 +273,20 @@ def reply(conversation: Conversation, transcription: str, reply_out_queue: Queue
         elevenlabs.play_audio_file("error.mp3", reply_out_queue)
 
 
-def create_audio_file(recording_audio_buffer):
-    virtual_file = BytesIO()
-    wav_file = wave.open(virtual_file, "wb")
-    wav_file.setnchannels(1)
-    wav_file.setsampwidth(2)
-    wav_file.setframerate(16000)
-    wav_file.writeframes(recording_audio_buffer)
-    wav_file.close()
-    virtual_file.name = "recording.wav"
-    virtual_file.seek(0)
-
-    return virtual_file
-
-
-async def main():
+def main():
     recorder = PvRecorder(device_index=-1, frame_length=porcupine.frame_length)
 
-    with ThreadPoolExecutor() as executor:
-        audio_recording = AudioRecording(recorder, executor)
-        try:
-            while True:
-                await audio_recording.next_frame()
-        except KeyboardInterrupt:
-            print("Stopping ...")
-            audio_recording.stop()
-        finally:
-            recorder.delete()
-            porcupine.delete()
+    audio_recording = AudioRecording(recorder)
+    try:
+        while True:
+            audio_recording.next_frame()
+    except KeyboardInterrupt:
+        print("Stopping ...")
+        audio_recording.stop()
+    finally:
+        recorder.delete()
+        porcupine.delete()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
