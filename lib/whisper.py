@@ -1,3 +1,5 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing_extensions import TypedDict
 import openai
 from openai import util
@@ -18,4 +20,12 @@ def transcribe(model, file, **params) -> TranscriptionResult:
     response, _, api_key = requestor.request(
         "post", url, files=files, params=data, request_timeout=5
     )
-    return util.convert_to_openai_object(response, api_key, None, None) # type: ignore
+    result = util.convert_to_openai_object(response, api_key, None, None)  # type: ignore
+
+    return result  # type: ignore
+
+
+def async_transcribe(executor: ThreadPoolExecutor, model, file, **params):
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(executor, transcribe, model, file, **params)
+    return future

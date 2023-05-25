@@ -1,8 +1,11 @@
+from multiprocessing import Queue
 import os
 from typing import Any, List
 from typing_extensions import Literal, TypedDict
 
 import openai
+
+from lib.elevenlabs import ElevenLabsPlayer
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
@@ -33,22 +36,39 @@ prompt = (
 initial_message: Message = {"role": "system", "content": prompt}
 
 
-def reply(conversation: Conversation) -> Message:
+def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
     stream: Any = openai.ChatCompletion.create(
         model="gpt-3.5-turbo", messages=conversation, timeout=1, stream=True
     )
 
+    player = ElevenLabsPlayer(reply_out_queue)
+
     full_message = ""
+    new_word = ""
     for response in stream:
         if "content" in response.choices[0].delta:
-            full_message += response.choices[0].delta.content
+            token = response.choices[0].delta.content
+            full_message += token
+            new_word += token
+            if len(new_word.split(" ")) > 10:
+                splitted = (new_word + " ").split(" ")
+                to_say = " ".join(splitted[:-2])
+                new_word = " ".join(splitted[-2:-1])
+                player.consume(to_say)
+                # play_in_queue.put(("word", to_say))
         if len(full_message.split(" ")) > 100:
             break
+
+    player.consume(new_word)
+    player.stop()
+
     full_message = full_message.strip()
 
     assistant_message: Message = {
         "role": "assistant",
         "content": full_message,  # type: ignore
     }
+
+    reply_out_queue.put(("assistent_message", assistant_message))
 
     return assistant_message
