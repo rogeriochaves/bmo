@@ -5,7 +5,7 @@ from typing_extensions import Literal, TypedDict
 
 import openai
 
-from lib.elevenlabs import ElevenLabsPlayer
+from lib.elevenlabs import ElevenLabsPlayer, SayPlayer
 import lib.delta_logging as delta_logging
 from lib.delta_logging import logging
 
@@ -33,8 +33,17 @@ prompt = (
     "Reply on the language the user is talking to you, and then, stick to it."
     # "You are NOT an AI language model, you are a woman in your thirties called Emily."
     "You have a friendly and motivational personality and always behave as you know people very well, deep to a personal level. "
-    "Use slangs, speak as young people do on twitter."
+    "Use slangs, speak as young people do on twitter, but don't use accronyms like OMG or NM, spell it in full like oh my god or nevermind."
     # "Based on these traits, invent the rest of your past and personality."
+    "Your replies will be spoken out loud by a TTS system, in chunks, so please, use more commas and pauses than usual, so we can break down the sentences for TTS"
+    # "Your replies will be spoken out loud by a TTS system, in chunks, so please, very important, after every sentence, comma, period, -, or really any chunk that seems like a good chunk to send to TTS to be spoken out loud, put a · character. For example:"
+    # "\nUser: hello there"
+    # "\nAssistant: Yo!· Hey there.· What's up?·"
+    # "\n\nAnother example:"
+    # "\nAssistant: Mario was on a mission,· to save Princess Peach from Bowser,· dodging Goombas,· collecting coins,· and power-ups to gain strength,· until he finally reached the castle where he faced Bowser in an epic battle,· and emerged victorious,· saving Princess Peach and the Mushroom Kingdom!·"
+    # "\n\nAnother example:"
+    # "\nAssistant: Hey!· Not much,· just hanging out and ready to assist you -· this is what I like to do.· What can I help you with today?·"
+    # "\n\nKeep adding · this is very important, do not ever forget, for the whole conversation, add · after every comma, period, exclamation, question mark, for example: ', - . ? !' should become ',· -· ?· !·'. The reason is I want to use the special token · to break down the sentences using python to send to the TTS system"
 )
 
 initial_message: Message = {"role": "system", "content": prompt}
@@ -45,17 +54,24 @@ def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
         model="gpt-3.5-turbo", messages=conversation, timeout=1, stream=True
     )
 
-    player = ElevenLabsPlayer(reply_out_queue)
+    player = SayPlayer(reply_out_queue)
 
     full_message = ""
-    new_word = ""
+    next_sentence = ""
     first = True
 
     for response in stream:
         if "content" not in response.choices[0].delta:
             continue
 
-        token = response.choices[0].delta.content
+        token = (
+            response.choices[0]
+            .delta.content.replace("!", "!·")
+            .replace("?", "?·")
+            .replace(".", ".·")
+            .replace(",", ",·")
+            .replace("- ", "-· ")
+        )
         if first:
             delta_logging.handler.terminator = ""
             logger.info("Chat GPT started replying: %s", token)
@@ -65,21 +81,23 @@ def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
             print(token, end="", flush=True)
 
         full_message += token
-        new_word += token
-        if len(new_word.split(" ")) > 10:
-            splitted = (new_word + " ").split(" ")
-            to_say = " ".join(splitted[:-2])
-            new_word = " ".join(splitted[-2:-1])
+        next_sentence += token
+
+        if "·" in next_sentence:
+            splitted = next_sentence.split("·")
+            to_say = "".join(splitted[:-1]).strip()
+            next_sentence = splitted[-1]
+
             player.consume(to_say)
 
         if len(full_message.split(" ")) > 100:
             break
     print("")
 
-    player.consume(new_word)
+    player.consume(next_sentence.replace("·", "").strip())
     player.stop()
 
-    full_message = full_message.strip()
+    full_message = full_message.replace("·", "").strip()
 
     assistant_message: Message = {
         "role": "assistant",

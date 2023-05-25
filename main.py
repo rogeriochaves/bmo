@@ -245,8 +245,6 @@ def reply(conversation: Conversation, reply_in_queue: Queue, reply_out_queue: Qu
                 if conversation[-1]["role"] != "user":
                     return
 
-            reply_out_queue.put(("play_beep", "beep.mp3"))
-
             chatgpt.reply(conversation, reply_out_queue)
         except Exception:
             logging.exception("Exception thrown in reply")
