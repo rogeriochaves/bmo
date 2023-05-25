@@ -74,7 +74,7 @@ def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
         )
         if first:
             delta_logging.handler.terminator = ""
-            logger.info("Chat GPT started replying: %s", token)
+            logger.info("Chat GPT reply: %s", token)
             delta_logging.handler.terminator = "\n"
             first = False
         else:
@@ -86,9 +86,9 @@ def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
         if "·" in next_sentence:
             splitted = next_sentence.split("·")
             to_say = "".join(splitted[:-1]).strip()
-            next_sentence = splitted[-1]
-
-            player.consume(to_say)
+            if len(to_say.split(" ")) > 2:
+                next_sentence = splitted[-1]
+                player.consume(to_say)
 
         if len(full_message.split(" ")) > 100:
             break

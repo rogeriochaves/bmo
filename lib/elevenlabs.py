@@ -10,7 +10,7 @@ from lib.delta_logging import logging
 
 eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 
-VOICE_SETTINGS_STABILITY = 0.75
+VOICE_SETTINGS_STABILITY = 1
 VOICE_SETTINGS_SIMILARITY_BOOST = 0.75
 VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # pNInz6obpgDQGcFmaJgB
 
