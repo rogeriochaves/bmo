@@ -42,9 +42,9 @@ class WhisperTranscriber:
                 "-t",
                 "8",
                 "--step",
-                "500",
+                "250",
                 "--length",
-                "5000",
+                "2500",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -57,6 +57,7 @@ class WhisperTranscriber:
             return
 
         self.whispercpp.stdin.close()  # type: ignore
+        self.whispercpp.kill()
         self.whispercpp = None
 
     def transcribe_and_stop(self):
@@ -68,5 +69,6 @@ class WhisperTranscriber:
         output_lines = output.decode().split("\n")
         output_lines = [line.split("\x1b[2K\r")[-1].strip() for line in output_lines]
         output = "\n".join([line for line in output_lines if line != ""])
+        self.whispercpp.kill()
 
         return output

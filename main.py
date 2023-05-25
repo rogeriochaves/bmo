@@ -92,6 +92,7 @@ class AudioRecording:
             self.reply_process.kill()
         if self.interruption_detection:
             self.interruption_detection.stop()
+        self.transcriber.stop()
 
     def next_frame(self):
         pcm = self.recorder.read()
@@ -242,6 +243,7 @@ def reply(conversation: Conversation, transcription: str, reply_out_queue: Queue
             reply_out_queue.put(("user_message", user_message))
         else:
             logger.info("Transcription too small, probably a mistake, bailing out")
+            reply_out_queue.put(("reply_audio_ended", None))
             if conversation[-1]["role"] != "user":
                 return
 
