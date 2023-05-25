@@ -54,7 +54,7 @@ def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
         model="gpt-3.5-turbo", messages=conversation, timeout=1, stream=True
     )
 
-    player = SayPlayer(reply_out_queue)
+    player = ElevenLabsPlayer(reply_out_queue)
 
     full_message = ""
     next_sentence = ""
@@ -94,8 +94,8 @@ def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
             break
     print("")
 
-    player.consume(next_sentence.replace("·", "").strip())
     player.stop()
+    player.consume(next_sentence.replace("·", "").strip())
 
     full_message = full_message.replace("·", "").strip()
 
