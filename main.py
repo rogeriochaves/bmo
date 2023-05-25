@@ -1,4 +1,3 @@
-import time
 from dotenv import load_dotenv  # has to be the first import
 
 load_dotenv()
@@ -13,7 +12,7 @@ from lib.utils import calculate_volume
 import lib.chatgpt as chatgpt
 from lib.chatgpt import Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
-from lib.whisper import WhisperTranscriber
+from lib.whisper import WhisperAPITranscriber
 import os
 import struct
 import pvporcupine
@@ -35,10 +34,10 @@ buffer_size_on_active_listening = frame_length * 32 * 60  # keeps 60s of audio
 sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
 silence_threshold = 300  # maybe need to be adjusted
 # TODO: reduce to 1s and stop if needed
-silence_limit = 0.5 * sample_rate // frame_length  # 0.5 seconds of silence
-speaking_minimum = 0.3 * sample_rate // frame_length  # 0.3 seconds of speaking
+silence_limit = 0.5 * 32  # 0.5 seconds of silence
+speaking_minimum = 0.3 * 32  # 0.3 seconds of speaking
 silence_time_to_standby = (
-    10 * sample_rate // frame_length
+    10 * 32
 )  # goes back to wakeup word checking after 10s of silence
 
 
@@ -61,7 +60,7 @@ class AudioRecording:
     reply_out_queue: Queue
     interruption_detection: Optional[InterruptionDetection] = None
     conversation: Conversation = [initial_message]
-    transcriber: WhisperTranscriber
+    transcriber: WhisperAPITranscriber
 
     def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
@@ -78,7 +77,7 @@ class AudioRecording:
         self.reply_process.start()
         self.recording_audio_buffer = bytearray()
         self.speaking_frame_count = 0
-        self.transcriber = WhisperTranscriber()
+        self.transcriber = WhisperAPITranscriber()
         self.reset("waiting_for_silence")
 
     def reset(self, state):
@@ -105,6 +104,10 @@ class AudioRecording:
             self.interruption_detection.stop()
         self.transcriber.stop()
 
+    def transcribe_buffer(self):
+        self.transcriber.consume(self.recording_audio_buffer)
+        self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
+
     def next_frame(self):
         pcm = self.recorder.read()
 
@@ -118,11 +121,10 @@ class AudioRecording:
             self.waiting_for_silence(pcm)
 
         elif self.state == "start_reply":
+            self.recorder.stop()
             transcription = self.transcriber.transcribe_and_stop()
             logger.info("Transcription: %s", transcription)
             self.reply_in_queue.put(transcription)
-
-            self.recorder.stop()
 
             self.reset("replying")
             self.recorder.start()
@@ -157,6 +159,10 @@ class AudioRecording:
         emoji = "🔈" if is_silence else "🔊"
         print(f"🔴 {red}Listening... {emoji} {reset}", end="\r", flush=True)
 
+        transcription_chunk_size = frame_length * 32 * 4  # 4s of audio
+        if len(self.recording_audio_buffer) >= transcription_chunk_size:
+            self.transcribe_buffer()
+
         if is_silence:
             self.silence_frame_count += 1
             if (
@@ -178,6 +184,7 @@ class AudioRecording:
             and self.speaking_frame_count >= speaking_minimum
         ):
             logger.info("Detected silence a while after speaking, giving a reply")
+            self.transcribe_buffer()
             self.state = "start_reply"
 
         if self.silence_frame_count >= silence_time_to_standby:
