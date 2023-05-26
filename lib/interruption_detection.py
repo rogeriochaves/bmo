@@ -20,8 +20,8 @@ from lib.utils import terminate_pid_safely, calculate_volume
 silence_threshold = 300  # same as from main
 frame_length = 512  # same as from main
 pre_interrupt_speaking_minimum = (
-    0.5 * 32
-)  # 0.5 seconds of speaking to interrupt before audio_playback is reproduced
+    0.3 * 32
+)  # 0.3 seconds of speaking to interrupt before audio_playback is reproduced
 
 
 class InterruptionDetection:
@@ -77,7 +77,6 @@ class InterruptionDetection:
         return self.reply_audio_started
 
     def check_for_interruption(self, pcm: List[Any], is_silence: bool):
-        return False
         if self.interrupted:
             return True
 
@@ -93,6 +92,7 @@ class InterruptionDetection:
                 if self.speaking_frame_count > pre_interrupt_speaking_minimum:
                     self.interrupt()
                     return True
+        return False
 
         try:
             signal = self.interruption_check_out_queue.get(block=False)

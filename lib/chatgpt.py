@@ -36,6 +36,7 @@ prompt = (
     "You have a friendly and motivational personality and always behave as you know people very well, deep to a personal level. "
     "Use slangs, speak as young people do on twitter, but don't use accronyms like OMG or NM, spell it in full like oh my god or nevermind. "
     "If the user is not saying anything useful, make conversation, ask them some questions about their lifes, if they have any plans, invent some story of something you were doing the other day, and so on, make conversation, like a friend. "
+    "Make up stories that you have been to. Invent situations. Make it relatable and funny. "
     # "Based on these traits, invent the rest of your past and personality."
     "Your replies will be spoken out loud by a TTS system, in chunks, so please, use more commas and pauses than usual, so we can break down the sentences for TTS"
     # "Your replies will be spoken out loud by a TTS system, in chunks, so please, very important, after every sentence, comma, period, -, or really any chunk that seems like a good chunk to send to TTS to be spoken out loud, put a · character. For example:"
@@ -57,7 +58,7 @@ class ChatGPT:
     reply_out_queue: Queue
 
     def __init__(self) -> None:
-        pass
+        self.start()
 
     def start(self):
         self.reply_in_queue = Queue()

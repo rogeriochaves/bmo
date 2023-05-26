@@ -64,7 +64,6 @@ class AudioRecording:
         self.recording_audio_buffer = bytearray()
         self.speaking_frame_count = 0
         self.chat_gpt = ChatGPT()
-        self.chat_gpt.start()
         self.interruption_detection = None
         self.transcriber = WhisperAPITranscriber()
         self.reset("waiting_for_silence")
@@ -231,7 +230,7 @@ class AudioRecording:
                 self.chat_gpt.restart()
                 # Capture the last few frames when interrupting the assistent, drop anything before that, since we don't want any echo feedbacks
                 self.recording_audio_buffer = self.recording_audio_buffer[
-                    -frame_length * 5 :
+                    -frame_length * 32 :
                 ]
                 self.reset("waiting_for_silence")
 
