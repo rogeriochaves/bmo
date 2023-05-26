@@ -6,11 +6,7 @@ from typing_extensions import Literal, TypedDict
 import openai
 
 from lib.elevenlabs import ElevenLabsPlayer, SayPlayer
-import lib.delta_logging as delta_logging
-from lib.delta_logging import logging
 import lib.elevenlabs as elevenlabs
-
-logger = logging.getLogger()
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
@@ -93,8 +89,8 @@ class ChatGPT:
                 conversation = reply_in_queue.get(block=True)
                 ChatGPT.non_blocking_reply(conversation, reply_out_queue)
             except Exception:
-                logging.exception("Exception thrown in reply")
                 elevenlabs.play_audio_file("error.mp3", reply_out_queue)
+                reply_out_queue.put(("exception", None))
 
     @classmethod
     def non_blocking_reply(cls, conversation: Conversation, reply_out_queue: Queue):
@@ -125,9 +121,7 @@ class ChatGPT:
                 .replace("- ", "-· ")
             )
             if first:
-                delta_logging.handler.terminator = ""
-                logger.info("Chat GPT reply: %s", token)
-                delta_logging.handler.terminator = "\n"
+                reply_out_queue.put(("chat_gpt_reply_started", token))
                 first = False
             else:
                 print(token, end="", flush=True)

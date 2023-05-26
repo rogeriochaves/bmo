@@ -124,7 +124,6 @@ class ElevenLabsPlayer:
 
         for chunk_index, audio_chunk in enumerate(audio_stream):
             if index == 0 and chunk_index == 0:
-                logging.info("First audio chunk arrived")
                 self.local_queue.put(("reply_audio_started", self.ffplay.pid))
 
             self.audio_chunks[index].append(audio_chunk)
