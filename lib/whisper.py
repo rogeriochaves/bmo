@@ -1,7 +1,7 @@
 from io import BytesIO
 import subprocess
 from threading import Thread
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional, Union
 import wave
 
 import openai
@@ -85,7 +85,6 @@ class WhisperCppTranscriber:
 
 
 class WhisperAPITranscriber:
-    whisper_threads: List[Thread]
     transcription_index: int
     transcription_cut: int
     transcription_results: Dict[int, Union[Exception, str]]
@@ -96,7 +95,6 @@ class WhisperAPITranscriber:
     def restart(self):
         self.stop()
         self.transcription_cut = self.transcription_index
-        self.whisper_threads = []
         self.transcription_results = {}
 
     def stop(self):
@@ -111,7 +109,6 @@ class WhisperAPITranscriber:
             target=self.transcribe_async, args=(audio_buffer, self.transcription_index)
         )
         thread.start()
-        self.whisper_threads.append(thread)
         self.transcription_index += 1
 
     def transcribe_async(self, audio_buffer, index):
@@ -143,7 +140,7 @@ class WhisperAPITranscriber:
         ):
             if time.time() - now > 3:
                 break
-            time.sleep(0.1)
+            time.sleep(0.03)
 
         results = list(self.transcription_results.values())
         if len(results) == 1 and isinstance(results[0], Exception):

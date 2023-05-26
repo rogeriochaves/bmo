@@ -33,7 +33,6 @@ buffer_size_when_not_listening = frame_length * 32 * 20  # keeps 20s of audio
 buffer_size_on_active_listening = frame_length * 32 * 60  # keeps 60s of audio
 sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
 silence_threshold = 300  # maybe need to be adjusted
-# TODO: reduce to 1s and stop if needed
 silence_limit = 0.5 * 32  # 0.5 seconds of silence
 speaking_minimum = 0.3 * 32  # 0.3 seconds of speaking
 silence_time_to_standby = (
@@ -159,10 +158,6 @@ class AudioRecording:
         emoji = "🔈" if is_silence else "🔊"
         print(f"🔴 {red}Listening... {emoji} {reset}", end="\r", flush=True)
 
-        transcription_chunk_size = frame_length * 32 * 4  # 4s of audio
-        if len(self.recording_audio_buffer) >= transcription_chunk_size:
-            self.transcribe_buffer()
-
         if is_silence:
             self.silence_frame_count += 1
             if (
@@ -174,10 +169,14 @@ class AudioRecording:
             # Cut all empty audio from before to make it smaller
             if self.speaking_frame_count == 0:
                 self.recording_audio_buffer = self.recording_audio_buffer[
-                    -frame_length:
+                    -frame_length * 4:
                 ]
             self.speaking_frame_count += 1
             self.silence_frame_count = 0
+
+        transcription_chunk_size = frame_length * 32 * 4  # 4s of audio
+        if self.speaking_frame_count > 0 and len(self.recording_audio_buffer) >= transcription_chunk_size:
+            self.transcribe_buffer()
 
         if (
             self.silence_frame_count >= silence_limit
@@ -189,6 +188,7 @@ class AudioRecording:
 
         if self.silence_frame_count >= silence_time_to_standby:
             logger.info("Long silence time, going back to waiting for the wakeup word")
+            elevenlabs.play_audio_file_non_blocking("byebye.mp3")
             self.silence_frame_count = 0
             self.speaking_frame_count = 0
             self.state = "waiting_for_wakeup"
@@ -220,7 +220,10 @@ class AudioRecording:
             pass
 
         if self.interruption_detection.is_done():
-            self.recording_audio_buffer = bytearray()
+            self.recording_audio_buffer = self.recording_audio_buffer[
+                -frame_length * 2 :
+            ]  # Capture the last couple frames for better follow up after assistant reply
+            self.speaking_frame_count = 0
             self.reset("waiting_for_silence")
         else:
             is_silence = self.is_silence(pcm)
@@ -249,8 +252,7 @@ def reply(conversation: Conversation, reply_in_queue: Queue, reply_out_queue: Qu
             else:
                 logger.info("Transcription too small, probably a mistake, bailing out")
                 reply_out_queue.put(("reply_audio_ended", None))
-                if conversation[-1]["role"] != "user":
-                    return
+                continue
 
             chatgpt.reply(conversation, reply_out_queue)
         except Exception:

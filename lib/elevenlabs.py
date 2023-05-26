@@ -82,7 +82,7 @@ class ElevenLabsPlayer:
             stderr=subprocess.STDOUT,
         )
 
-    def stop(self):
+    def request_to_stop(self):
         self.requested_to_stop = True
         while True:
             action, data = self.local_queue.get(block=True)
@@ -90,12 +90,14 @@ class ElevenLabsPlayer:
             if action == "reply_audio_ended":
                 break
 
-    def _stop(self):
+    def terminate(self):
         self.ffplay.stdin.close()  # type: ignore
         self.ffplay.wait()
         self.local_queue.put(("reply_audio_ended", None))
 
     def consume(self, word: str):
+        if word == "":
+            return
         self.audio_chunks[self.word_index] = []
         thread = Thread(target=self.generate_async, args=(word, self.word_index))
         thread.start()
@@ -136,7 +138,7 @@ class ElevenLabsPlayer:
     def play_next_chunks(self):
         if self.playing_index not in self.audio_chunks:
             if self.requested_to_stop:
-                self._stop()
+                self.terminate()
             return
 
         if self.ffplay.poll() is not None:

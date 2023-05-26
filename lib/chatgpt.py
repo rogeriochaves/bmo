@@ -51,7 +51,11 @@ initial_message: Message = {"role": "system", "content": prompt}
 
 def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
     stream: Any = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo", messages=conversation, timeout=1, stream=True
+        model="gpt-3.5-turbo",
+        messages=conversation,
+        timeout=3,
+        request_timeout=3,
+        stream=True,
     )
 
     player = ElevenLabsPlayer(reply_out_queue)
@@ -94,11 +98,10 @@ def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
             break
     print("")
 
-    player.stop()
     player.consume(next_sentence.replace("·", "").strip())
+    player.request_to_stop()
 
     full_message = full_message.replace("·", "").strip()
-
     assistant_message: Message = {
         "role": "assistant",
         "content": full_message,  # type: ignore
