@@ -5,7 +5,7 @@ from typing_extensions import Literal, TypedDict
 
 import openai
 
-from lib.elevenlabs import ElevenLabsPlayer, SayPlayer
+from lib.elevenlabs import ElevenLabsPlayer, Player, SayPlayer
 import lib.elevenlabs as elevenlabs
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -109,7 +109,7 @@ class ChatGPT:
         except:
             stream: Any = chat_completion_create()
 
-        player = ElevenLabsPlayer(reply_out_queue)
+        player : Player = ElevenLabsPlayer(reply_out_queue)
 
         full_message = ""
         next_sentence = ""

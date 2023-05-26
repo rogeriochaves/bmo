@@ -2,6 +2,7 @@ from io import BytesIO
 import subprocess
 from threading import Thread
 from typing import Dict, Optional, Union
+from typing_extensions import Protocol
 import wave
 
 import openai
@@ -9,27 +10,18 @@ from openai import util
 import time
 
 
-def transcribe(file) -> str:
-    whispercpp = subprocess.Popen(
-        args=[
-            "./whisper.cpp/main",
-            "-m",
-            "./whisper.cpp/models/ggml-medium.bin",
-            "-nt",
-            "-f",
-            "-",
-        ],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    whispercpp.stdin.write(file)  # type: ignore
-    whispercpp.stdin.close()  # type: ignore
+class Transcriber(Protocol):
+    def restart(self):
+        pass
 
-    output, _ = whispercpp.communicate()
-    output = output.decode()
+    def stop(self):
+        pass
 
-    return output
+    def consume(self, audio_buffer):
+        pass
+
+    def transcribe_and_stop(self) -> str:
+        return ""
 
 
 class WhisperCppTranscriber:
@@ -160,3 +152,26 @@ class WhisperAPITranscriber:
         virtual_file.seek(0)
 
         return virtual_file
+
+
+def transcribe(file) -> str:
+    whispercpp = subprocess.Popen(
+        args=[
+            "./whisper.cpp/main",
+            "-m",
+            "./whisper.cpp/models/ggml-medium.bin",
+            "-nt",
+            "-f",
+            "-",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    whispercpp.stdin.write(file)  # type: ignore
+    whispercpp.stdin.close()  # type: ignore
+
+    output, _ = whispercpp.communicate()
+    output = output.decode()
+
+    return output

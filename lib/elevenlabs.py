@@ -4,7 +4,7 @@ from queue import Empty, Queue
 import subprocess
 from threading import Thread
 from typing import Dict, Iterator, List, Union
-from typing_extensions import Literal
+from typing_extensions import Literal, Protocol
 from elevenlabs import generate, Voice, VoiceSettings
 from lib.delta_logging import logging
 
@@ -12,9 +12,20 @@ eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 
 VOICE_SETTINGS_STABILITY = 1
 VOICE_SETTINGS_SIMILARITY_BOOST = 0.75
-VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # pNInz6obpgDQGcFmaJgB
+VOICE_ID = "pNInz6obpgDQGcFmaJgB"  # pNInz6obpgDQGcFmaJgB
 
 logger = logging.getLogger()
+
+
+class Player(Protocol):
+    def start(self):
+        pass
+
+    def request_to_stop(self):
+        pass
+
+    def consume(self, word: str):
+        pass
 
 
 class SayPlayer:
@@ -32,7 +43,7 @@ class SayPlayer:
     def start(self):
         pass
 
-    def stop(self):
+    def request_to_stop(self):
         self.local_queue = Queue()
         while True:
             action, data = self.local_queue.get(block=True)
@@ -90,7 +101,7 @@ class ElevenLabsPlayer:
             if action == "reply_audio_ended":
                 break
 
-    def terminate(self):
+    def _terminate(self):
         self.ffplay.stdin.close()  # type: ignore
         self.ffplay.wait()
         self.local_queue.put(("reply_audio_ended", None))
@@ -137,7 +148,7 @@ class ElevenLabsPlayer:
     def play_next_chunks(self):
         if self.playing_index not in self.audio_chunks:
             if self.requested_to_stop:
-                self.terminate()
+                self._terminate()
             return
 
         if self.ffplay.poll() is not None:

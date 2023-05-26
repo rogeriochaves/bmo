@@ -11,7 +11,7 @@ from lib.porcupine import wakeup_keywords
 from lib.utils import calculate_volume
 from lib.chatgpt import ChatGPT, Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
-from lib.whisper import WhisperAPITranscriber
+from lib.whisper import Transcriber, WhisperAPITranscriber
 import os
 import struct
 import pvporcupine
@@ -58,7 +58,7 @@ class AudioRecording:
 
     chat_gpt: ChatGPT
     interruption_detection: Optional[InterruptionDetection]
-    transcriber: WhisperAPITranscriber
+    transcriber: Transcriber
 
     def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
