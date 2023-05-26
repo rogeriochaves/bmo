@@ -2,15 +2,13 @@ from dotenv import load_dotenv  # has to be the first import
 
 load_dotenv()
 from lib.delta_logging import logging, red, reset  # has to be the second
-from multiprocessing import Process, Queue
 from queue import Empty
 from typing import Any, List, Optional
 from typing_extensions import Literal
 from lib.interruption_detection import InterruptionDetection
 from lib.porcupine import wakeup_keywords
 from lib.utils import calculate_volume
-import lib.chatgpt as chatgpt
-from lib.chatgpt import Conversation, Message, initial_message
+from lib.chatgpt import ChatGPT, Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
 from lib.whisper import WhisperAPITranscriber
 import os
@@ -50,31 +48,24 @@ RecordingState = Literal[
 
 class AudioRecording:
     state: RecordingState
+    conversation: Conversation = [initial_message]
+
     silence_frame_count: int
     speaking_frame_count: int
     recording_audio_buffer: bytearray
     recorder: PvRecorder
-    reply_process: Optional[Process] = None
-    reply_in_queue: Queue
-    reply_out_queue: Queue
-    interruption_detection: Optional[InterruptionDetection] = None
-    conversation: Conversation = [initial_message]
+
+    chat_gpt: ChatGPT
+    interruption_detection: Optional[InterruptionDetection]
     transcriber: WhisperAPITranscriber
 
     def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
-        self.reply_in_queue = Queue()
-        self.reply_out_queue = Queue()
-        self.reply_process = Process(
-            target=reply,
-            args=(
-                self.reply_in_queue,
-                self.reply_out_queue,
-            ),
-        )
-        self.reply_process.start()
         self.recording_audio_buffer = bytearray()
         self.speaking_frame_count = 0
+        self.chat_gpt = ChatGPT()
+        self.chat_gpt.start()
+        self.interruption_detection = None
         self.transcriber = WhisperAPITranscriber()
         self.reset("waiting_for_silence")
 
@@ -96,8 +87,7 @@ class AudioRecording:
 
     def stop(self):
         self.recorder.stop()
-        if self.reply_process:
-            self.reply_process.kill()
+        self.chat_gpt.stop()
         if self.interruption_detection:
             self.interruption_detection.stop()
         self.transcriber.stop()
@@ -131,7 +121,7 @@ class AudioRecording:
             self.conversation.append(user_message)
             self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
 
-            self.reply_in_queue.put(self.conversation)
+            self.chat_gpt.reply(self.conversation)
 
             self.reset("replying")
             self.recorder.start()
@@ -209,7 +199,7 @@ class AudioRecording:
             return
 
         try:
-            (action, data) = self.reply_out_queue.get(block=False)
+            (action, data) = self.chat_gpt.get(block=False)
             if action == "assistent_message":
                 self.conversation.append(data)
             elif action == "play_beep":
@@ -238,23 +228,12 @@ class AudioRecording:
             )
             if interrupted:
                 logger.info("Interrupted")
-                if self.reply_process:
-                    self.reply_process.kill()
+                self.chat_gpt.restart()
                 # Capture the last few frames when interrupting the assistent, drop anything before that, since we don't want any echo feedbacks
                 self.recording_audio_buffer = self.recording_audio_buffer[
                     -frame_length * 5 :
                 ]
                 self.reset("waiting_for_silence")
-
-
-def reply(reply_in_queue: Queue, reply_out_queue: Queue):
-    while True:
-        try:
-            conversation = reply_in_queue.get(block=True)
-            chatgpt.reply(conversation, reply_out_queue)
-        except Exception:
-            logging.exception("Exception thrown in reply")
-            elevenlabs.play_audio_file("error.mp3", reply_out_queue)
 
 
 def main():

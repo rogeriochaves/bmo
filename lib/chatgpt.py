@@ -1,6 +1,6 @@
-from multiprocessing import Queue
+from multiprocessing import Process, Queue
 import os
-from typing import Any, List
+from typing import Any, List, Optional
 from typing_extensions import Literal, TypedDict
 
 import openai
@@ -8,6 +8,7 @@ import openai
 from lib.elevenlabs import ElevenLabsPlayer, SayPlayer
 import lib.delta_logging as delta_logging
 from lib.delta_logging import logging
+import lib.elevenlabs as elevenlabs
 
 logger = logging.getLogger()
 
@@ -50,64 +51,111 @@ prompt = (
 initial_message: Message = {"role": "system", "content": prompt}
 
 
-def reply(conversation: Conversation, reply_out_queue: Queue) -> Message:
-    stream: Any = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=conversation,
-        timeout=3,
-        request_timeout=3,
-        stream=True,
-    )
+class ChatGPT:
+    reply_process: Optional[Process] = None
+    reply_in_queue: Queue
+    reply_out_queue: Queue
 
-    player = ElevenLabsPlayer(reply_out_queue)
+    def __init__(self) -> None:
+        pass
 
-    full_message = ""
-    next_sentence = ""
-    first = True
-
-    for response in stream:
-        if "content" not in response.choices[0].delta:
-            continue
-
-        token = (
-            response.choices[0]
-            .delta.content.replace("!", "!·")
-            .replace("?", "?·")
-            .replace(".", ".·")
-            .replace(",", ",·")
-            .replace("- ", "-· ")
+    def start(self):
+        self.reply_in_queue = Queue()
+        self.reply_out_queue = Queue()
+        self.reply_process = Process(
+            target=ChatGPT.reply_loop,
+            args=(
+                self.reply_in_queue,
+                self.reply_out_queue,
+            ),
         )
-        if first:
-            delta_logging.handler.terminator = ""
-            logger.info("Chat GPT reply: %s", token)
-            delta_logging.handler.terminator = "\n"
-            first = False
-        else:
-            print(token, end="", flush=True)
+        self.reply_process.start()
 
-        full_message += token
-        next_sentence += token
+    def stop(self):
+        if self.reply_process:
+            self.reply_process.kill()
 
-        if "·" in next_sentence:
-            splitted = next_sentence.split("·")
-            to_say = "".join(splitted[:-1]).strip()
-            if len(to_say.split(" ")) > 2:
-                next_sentence = splitted[-1]
-                player.consume(to_say)
+    def restart(self):
+        self.stop()
+        self.start()
 
-        if len(full_message.split(" ")) > 100:
-            break
-    print("")
+    def reply(self, conversation: Conversation):
+        self.reply_in_queue.put(conversation)
 
-    player.consume(next_sentence.replace("·", "").strip())
-    player.request_to_stop()
+    def get(self, block: bool):
+        return self.reply_out_queue.get(block=block)
 
-    full_message = full_message.replace("·", "").strip()
-    assistant_message: Message = {
-        "role": "assistant",
-        "content": full_message,  # type: ignore
-    }
+    @classmethod
+    def reply_loop(cls, reply_in_queue: Queue, reply_out_queue: Queue):
+        while True:
+            try:
+                conversation = reply_in_queue.get(block=True)
+                ChatGPT.non_blocking_reply(conversation, reply_out_queue)
+            except Exception:
+                logging.exception("Exception thrown in reply")
+                elevenlabs.play_audio_file("error.mp3", reply_out_queue)
 
-    reply_out_queue.put(("assistent_message", assistant_message))
+    @classmethod
+    def non_blocking_reply(
+        cls, conversation: Conversation, reply_out_queue: Queue
+    ) -> Message:
+        stream: Any = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=conversation,
+            timeout=3,
+            request_timeout=3,
+            stream=True,
+        )
 
-    return assistant_message
+        player = ElevenLabsPlayer(reply_out_queue)
+
+        full_message = ""
+        next_sentence = ""
+        first = True
+
+        for response in stream:
+            if "content" not in response.choices[0].delta:
+                continue
+
+            token = (
+                response.choices[0]
+                .delta.content.replace("!", "!·")
+                .replace("?", "?·")
+                .replace(".", ".·")
+                .replace(",", ",·")
+                .replace("- ", "-· ")
+            )
+            if first:
+                delta_logging.handler.terminator = ""
+                logger.info("Chat GPT reply: %s", token)
+                delta_logging.handler.terminator = "\n"
+                first = False
+            else:
+                print(token, end="", flush=True)
+
+            full_message += token
+            next_sentence += token
+
+            if "·" in next_sentence:
+                splitted = next_sentence.split("·")
+                to_say = "".join(splitted[:-1]).strip()
+                if len(to_say.split(" ")) > 2:
+                    next_sentence = splitted[-1]
+                    player.consume(to_say)
+
+            if len(full_message.split(" ")) > 100:
+                break
+        print("")
+
+        player.consume(next_sentence.replace("·", "").strip())
+        player.request_to_stop()
+
+        full_message = full_message.replace("·", "").strip()
+        assistant_message: Message = {
+            "role": "assistant",
+            "content": full_message,  # type: ignore
+        }
+
+        reply_out_queue.put(("assistent_message", assistant_message))
+
+        return assistant_message
