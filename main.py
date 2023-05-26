@@ -68,7 +68,6 @@ class AudioRecording:
         self.reply_process = Process(
             target=reply,
             args=(
-                self.conversation,
                 self.reply_in_queue,
                 self.reply_out_queue,
             ),
@@ -123,7 +122,16 @@ class AudioRecording:
             self.recorder.stop()
             transcription = self.transcriber.transcribe_and_stop()
             logger.info("Transcription: %s", transcription)
-            self.reply_in_queue.put(transcription)
+            if len(transcription.strip()) == 0:
+                logger.info("Transcription too small, probably a mistake, bailing out")
+                self.reset("waiting_for_silence")
+                return
+
+            user_message: Message = {"role": "user", "content": transcription}
+            self.conversation.append(user_message)
+            self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
+
+            self.reply_in_queue.put(self.conversation)
 
             self.reset("replying")
             self.recorder.start()
@@ -169,13 +177,16 @@ class AudioRecording:
             # Cut all empty audio from before to make it smaller
             if self.speaking_frame_count == 0:
                 self.recording_audio_buffer = self.recording_audio_buffer[
-                    -frame_length * 4:
+                    -frame_length * 4 :
                 ]
             self.speaking_frame_count += 1
             self.silence_frame_count = 0
 
         transcription_chunk_size = frame_length * 32 * 4  # 4s of audio
-        if self.speaking_frame_count > 0 and len(self.recording_audio_buffer) >= transcription_chunk_size:
+        if (
+            self.speaking_frame_count > 0
+            and len(self.recording_audio_buffer) >= transcription_chunk_size
+        ):
             self.transcribe_buffer()
 
         if (
@@ -199,12 +210,7 @@ class AudioRecording:
 
         try:
             (action, data) = self.reply_out_queue.get(block=False)
-            if action == "user_message":
-                self.recording_audio_buffer = self.recording_audio_buffer[
-                    -frame_length:
-                ]
-                self.conversation.append(data)
-            elif action == "assistent_message":
+            if action == "assistent_message":
                 self.conversation.append(data)
             elif action == "play_beep":
                 self.interruption_detection.pause_for(32)
@@ -241,19 +247,10 @@ class AudioRecording:
                 self.reset("waiting_for_silence")
 
 
-def reply(conversation: Conversation, reply_in_queue: Queue, reply_out_queue: Queue):
+def reply(reply_in_queue: Queue, reply_out_queue: Queue):
     while True:
         try:
-            transcription = reply_in_queue.get(block=True)
-            if len(transcription.strip()) > 1:
-                user_message: Message = {"role": "user", "content": transcription}
-                conversation.append(user_message)
-                reply_out_queue.put(("user_message", user_message))
-            else:
-                logger.info("Transcription too small, probably a mistake, bailing out")
-                reply_out_queue.put(("reply_audio_ended", None))
-                continue
-
+            conversation = reply_in_queue.get(block=True)
             chatgpt.reply(conversation, reply_out_queue)
         except Exception:
             logging.exception("Exception thrown in reply")
