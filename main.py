@@ -2,7 +2,6 @@ from dotenv import load_dotenv  # has to be the first import
 
 load_dotenv()
 from lib.delta_logging import logging, red, reset  # has to be the second
-import lib.delta_logging as delta_logging
 from queue import Empty
 from typing import Any, List, Optional
 from typing_extensions import Literal
@@ -209,20 +208,13 @@ class AudioRecording:
             elif action == "play_beep":
                 self.interruption_detection.pause_for(32)
                 elevenlabs.play_audio_file_non_blocking(data)
-            elif action == "chat_gpt_reply_started":
-                delta_logging.handler.terminator = ""
-                logger.info("Chat GPT reply: %s", data)
-                delta_logging.handler.terminator = "\n"
             elif action == "reply_audio_started":
-                logger.info("First audio chunk arrived")
                 self.silence_frame_count = 0
                 self.speaking_frame_count = 0
                 self.interruption_detection.start_reply_interruption_check(data)
             elif action == "reply_audio_ended":
                 logger.info("Playing audio done")
                 self.interruption_detection.stop()
-            elif action == "exception":
-                logging.exception("Exception thrown in reply", data)
         except Empty:
             pass
 

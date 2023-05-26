@@ -2,8 +2,6 @@ import time
 import logging
 
 class DeltaTimeFormatter(logging.Formatter):
-    start_time: float
-
     def __init__(self, fmt):
         super().__init__(fmt)
         self.start_time = time.time()
@@ -21,7 +19,7 @@ blue = "\x1b[34;20m"
 reset = "\x1b[0m"
 handler = logging.StreamHandler()
 LOGFORMAT = blue + "+%(delta)-7s " + reset + " %(levelname)s: %(message)s"
-log_formatter = DeltaTimeFormatter(LOGFORMAT)
-handler.setFormatter(log_formatter)
+fmt = DeltaTimeFormatter(LOGFORMAT)
+handler.setFormatter(fmt)
 logging.getLogger().addHandler(handler)
 logging.getLogger().setLevel(logging.INFO)
