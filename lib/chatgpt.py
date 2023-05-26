@@ -88,19 +88,26 @@ class ChatGPT:
             try:
                 conversation = reply_in_queue.get(block=True)
                 ChatGPT.non_blocking_reply(conversation, reply_out_queue)
-            except Exception:
+            except Exception as e:
                 elevenlabs.play_audio_file("error.mp3", reply_out_queue)
-                reply_out_queue.put(("exception", None))
+                reply_out_queue.put(("exception", e))
 
     @classmethod
     def non_blocking_reply(cls, conversation: Conversation, reply_out_queue: Queue):
-        stream: Any = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=conversation,
-            timeout=3,
-            request_timeout=3,
-            stream=True,
-        )
+        def chat_completion_create():
+            return openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=conversation,
+                timeout=3,
+                request_timeout=3,
+                stream=True,
+            )
+
+        # retry once
+        try:
+            stream: Any = chat_completion_create()
+        except:
+            stream: Any = chat_completion_create()
 
         player = ElevenLabsPlayer(reply_out_queue)
 

@@ -94,7 +94,9 @@ class AudioRecording:
 
     def transcribe_buffer(self):
         self.transcriber.consume(self.recording_audio_buffer)
-        self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
+        self.recording_audio_buffer = self.recording_audio_buffer[
+            -max(frame_length * 32 * 3, 0) :
+        ]
 
     def next_frame(self):
         pcm = self.recorder.read()
@@ -172,10 +174,12 @@ class AudioRecording:
             self.speaking_frame_count += 1
             self.silence_frame_count = 0
 
-        transcription_chunk_size = frame_length * 32 * 4  # 4s of audio
+        transcription_flush_step = 1 * 32  # 1s of audio
         if (
             self.speaking_frame_count > 0
-            and len(self.recording_audio_buffer) >= transcription_chunk_size
+            and (self.silence_frame_count + self.speaking_frame_count)
+            % transcription_flush_step
+            == 0
         ):
             self.transcribe_buffer()
 
@@ -218,7 +222,7 @@ class AudioRecording:
                 logger.info("Playing audio done")
                 self.interruption_detection.stop()
             elif action == "exception":
-                logging.exception("Exception thrown in reply")
+                logging.exception("Exception thrown in reply", data)
         except Empty:
             pass
 

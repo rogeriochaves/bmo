@@ -135,8 +135,8 @@ class WhisperAPITranscriber:
     def transcribe_and_stop(self):
         now = time.time()
         while (
-            self.transcription_index > 0
-            and len(self.transcription_results.values()) == 0
+            self.transcription_index > 1
+            and len(self.transcription_results.values()) <= 1
         ):
             if time.time() - now > 3:
                 break
