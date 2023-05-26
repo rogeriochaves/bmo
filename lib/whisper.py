@@ -64,7 +64,7 @@ class WhisperCppTranscriber:
 
     def transcribe_and_stop(self):
         if self.whispercpp is None:
-            return
+            return ""
 
         self.whispercpp.terminate()
         output, _ = self.whispercpp.communicate()
@@ -126,9 +126,11 @@ class WhisperAPITranscriber:
 
     def transcribe_and_stop(self):
         now = time.time()
+        minimum_transcriptions = 1
+
         while (
-            self.transcription_index > 1
-            and len(self.transcription_results.values()) <= 1
+            self.transcription_index >= minimum_transcriptions
+            and len(self.transcription_results.values()) < minimum_transcriptions
         ):
             if time.time() - now > 3:
                 break

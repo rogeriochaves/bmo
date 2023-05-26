@@ -11,7 +11,7 @@ from lib.porcupine import wakeup_keywords
 from lib.utils import calculate_volume
 from lib.chatgpt import ChatGPT, Conversation, Message, initial_message
 import lib.elevenlabs as elevenlabs
-from lib.whisper import Transcriber, WhisperAPITranscriber
+from lib.whisper import Transcriber, WhisperAPITranscriber, WhisperCppTranscriber
 import os
 import struct
 import pvporcupine
