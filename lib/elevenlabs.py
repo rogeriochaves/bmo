@@ -18,6 +18,8 @@ logger = logging.getLogger()
 
 
 class Player(Protocol):
+    min_words: int
+
     def start(self):
         pass
 
@@ -29,6 +31,7 @@ class Player(Protocol):
 
 
 class SayPlayer:
+    min_words = 1
     reply_out_queue: multiprocessing.Queue
     word_index: int
     playing_index: int
@@ -53,6 +56,7 @@ class SayPlayer:
 
     def consume(self, word: str):
         if self.word_index == 0:
+            logger.info("First audio chunk arrived")
             self.reply_out_queue.put(("reply_audio_started", -1))
         thread = Thread(target=self.generate_async, args=(word, self.word_index))
         thread.start()
@@ -68,6 +72,7 @@ class SayPlayer:
 
 
 class ElevenLabsPlayer:
+    min_words = 2
     ffplay: subprocess.Popen
     reply_out_queue: multiprocessing.Queue
     word_index: int
@@ -135,7 +140,7 @@ class ElevenLabsPlayer:
 
         for chunk_index, audio_chunk in enumerate(audio_stream):
             if index == 0 and chunk_index == 0:
-                logging.info("First audio chunk arrived")
+                logger.info("First audio chunk arrived")
                 self.local_queue.put(("reply_audio_started", self.ffplay.pid))
 
             self.audio_chunks[index].append(audio_chunk)
@@ -186,4 +191,5 @@ def play_audio_file(filename, reply_out_queue: multiprocessing.Queue):
     )
     reply_out_queue.put(("reply_audio_started", ffplay.pid))
     ffplay.wait()
+    logger.info("Playing audio done")
     reply_out_queue.put(("reply_audio_ended", None))

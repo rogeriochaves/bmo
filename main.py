@@ -1,7 +1,10 @@
+from multiprocessing import Value
+from multiprocessing.sharedctypes import Synchronized
+import time
 from dotenv import load_dotenv  # has to be the first import
 
 load_dotenv()
-from lib.delta_logging import logging, red, reset  # has to be the second
+from lib.delta_logging import logging, red, reset, log_formatter  # has to be the second
 from queue import Empty
 from typing import Any, List, Optional
 from typing_extensions import Literal
@@ -65,7 +68,7 @@ class AudioRecording:
         self.speaking_frame_count = 0
         self.chat_gpt = ChatGPT()
         self.interruption_detection = None
-        self.transcriber = WhisperAPITranscriber()
+        self.transcriber = WhisperCppTranscriber()
         self.reset("waiting_for_silence")
 
     def reset(self, state):
@@ -112,7 +115,6 @@ class AudioRecording:
         elif self.state == "start_reply":
             self.recorder.stop()
             transcription = self.transcriber.transcribe_and_stop()
-            logger.info("Transcription: %s", transcription)
             if len(transcription.strip()) == 0:
                 logger.info("Transcription too small, probably a mistake, bailing out")
                 self.reset("waiting_for_silence")
@@ -213,7 +215,6 @@ class AudioRecording:
                 self.speaking_frame_count = 0
                 self.interruption_detection.start_reply_interruption_check(data)
             elif action == "reply_audio_ended":
-                logger.info("Playing audio done")
                 self.interruption_detection.stop()
         except Empty:
             pass
@@ -240,8 +241,10 @@ class AudioRecording:
 
 
 def main():
-    recorder = PvRecorder(device_index=-1, frame_length=porcupine.frame_length)
+    start_time : Synchronized = Value("d", time.time())  # type: ignore
+    log_formatter.start_time = start_time
 
+    recorder = PvRecorder(device_index=-1, frame_length=porcupine.frame_length)
     audio_recording = AudioRecording(recorder)
     try:
         while True:

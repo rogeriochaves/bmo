@@ -1,4 +1,5 @@
 from multiprocessing import Process, Queue
+from multiprocessing.sharedctypes import Synchronized
 import os
 from typing import Any, List, Optional
 from typing_extensions import Literal, TypedDict
@@ -7,7 +8,7 @@ import openai
 
 from lib.elevenlabs import ElevenLabsPlayer, Player, SayPlayer
 import lib.delta_logging as delta_logging
-from lib.delta_logging import logging
+from lib.delta_logging import logging, log_formatter
 import lib.elevenlabs as elevenlabs
 
 logger = logging.getLogger()
@@ -65,10 +66,7 @@ class ChatGPT:
         self.reply_out_queue = Queue()
         self.reply_process = Process(
             target=ChatGPT.reply_loop,
-            args=(
-                self.reply_in_queue,
-                self.reply_out_queue,
-            ),
+            args=(self.reply_in_queue, self.reply_out_queue, log_formatter.start_time),
         )
         self.reply_process.start()
 
@@ -87,7 +85,10 @@ class ChatGPT:
         return self.reply_out_queue.get(block=block)
 
     @classmethod
-    def reply_loop(cls, reply_in_queue: Queue, reply_out_queue: Queue):
+    def reply_loop(
+        cls, reply_in_queue: Queue, reply_out_queue: Queue, start_time: Synchronized
+    ):
+        log_formatter.start_time = start_time
         while True:
             try:
                 conversation = reply_in_queue.get(block=True)
@@ -145,7 +146,7 @@ class ChatGPT:
             if "·" in next_sentence:
                 splitted = next_sentence.split("·")
                 to_say = "".join(splitted[:-1]).strip()
-                if len(to_say.split(" ")) > 2:
+                if len(to_say.split(" ")) >= player.min_words:
                     next_sentence = splitted[-1]
                     player.consume(to_say)
 

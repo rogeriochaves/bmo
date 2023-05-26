@@ -8,6 +8,9 @@ import wave
 import openai
 from openai import util
 import time
+from lib.delta_logging import logging
+
+logger = logging.getLogger()
 
 
 class Transcriber(Protocol):
@@ -71,6 +74,7 @@ class WhisperCppTranscriber:
         output_lines = output.decode().split("\n")
         output_lines = [line.split("\x1b[2K\r")[-1].strip() for line in output_lines]
         output = "\n".join([line for line in output_lines if line != ""])
+        logger.info("Transcription: %s", output)
         self.whispercpp.kill()
 
         return output
