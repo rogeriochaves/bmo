@@ -57,7 +57,7 @@ class SayPlayer:
 
 
 class ElevenLabsPlayer:
-    ffplay: subprocess.Popen[bytes]
+    ffplay: subprocess.Popen
     reply_out_queue: multiprocessing.Queue
     word_index: int
     audio_chunks: Dict[int, List[Union[bytes, Literal["done"]]]]

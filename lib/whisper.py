@@ -33,7 +33,7 @@ def transcribe(file) -> str:
 
 
 class WhisperCppTranscriber:
-    whispercpp: Optional[subprocess.Popen[bytes]]
+    whispercpp: Optional[subprocess.Popen]
     first: bool
 
     def __init__(self) -> None:
