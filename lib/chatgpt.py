@@ -96,9 +96,7 @@ class ChatGPT:
                 elevenlabs.play_audio_file("error.mp3", reply_out_queue)
 
     @classmethod
-    def non_blocking_reply(
-        cls, conversation: Conversation, reply_out_queue: Queue
-    ) -> Message:
+    def non_blocking_reply(cls, conversation: Conversation, reply_out_queue: Queue):
         stream: Any = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=conversation,
@@ -157,5 +155,3 @@ class ChatGPT:
         }
 
         reply_out_queue.put(("assistent_message", assistant_message))
-
-        return assistant_message
