@@ -89,16 +89,18 @@ class ChatGPT:
         cls, reply_in_queue: Queue, reply_out_queue: Queue, start_time: Synchronized
     ):
         log_formatter.start_time = start_time
+        player : Player = PiperPlayer(reply_out_queue)
         while True:
             try:
                 conversation = reply_in_queue.get(block=True)
-                ChatGPT.non_blocking_reply(conversation, reply_out_queue)
+                ChatGPT.non_blocking_reply(conversation, player, reply_out_queue)
+                player : Player = PiperPlayer(reply_out_queue)
             except Exception:
                 logging.exception("Exception thrown in reply")
                 elevenlabs.play_audio_file("error.mp3", reply_out_queue)
 
     @classmethod
-    def non_blocking_reply(cls, conversation: Conversation, reply_out_queue: Queue):
+    def non_blocking_reply(cls, conversation: Conversation, player: Player, reply_out_queue: Queue):
         def chat_completion_create():
             return openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
@@ -107,8 +109,6 @@ class ChatGPT:
                 request_timeout=3,
                 stream=True,
             )
-
-        player : Player = PiperPlayer(reply_out_queue)
 
         # retry once
         try:

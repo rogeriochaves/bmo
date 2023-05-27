@@ -248,6 +248,7 @@ class PiperPlayer:
                     output = self.piper.stdout.read1(512 * 32)  # type: ignore
                     if output:
                         if first:
+                            logger.info("First audio chunk arrived")
                             self.reply_out_queue.put(("reply_audio_started", self.ffplay.pid))
                             first = False
                         self.ffplay.stdin.write(output)  # type: ignore
