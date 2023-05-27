@@ -1,5 +1,6 @@
 import multiprocessing
 from multiprocessing import Queue
+import select
 import subprocess
 from threading import Thread
 from lib.delta_logging import logging
