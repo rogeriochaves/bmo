@@ -7,7 +7,6 @@ from typing import Dict, Iterator, List, Union
 from typing_extensions import Literal, Protocol
 from elevenlabs import generate, Voice, VoiceSettings
 from lib.delta_logging import logging
-import time
 
 eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 
@@ -184,15 +183,28 @@ class PiperPlayer:
     def start(self):
         self.first = True
         self.piper = subprocess.Popen(
-            " ".join([
-                "./piper/piper/piper",
-                "--model",
-                "./piper/en-us-ryan-medium.onnx",
-                "--output_raw",
-                "-",
-                "|",
-                "ffplay", "-probesize", "8192", "-f", "s16le", "-ar", "22050", "-ac", "1", "-nodisp", "-autoexit", "-"
-            ]),
+            " ".join(
+                [
+                    "./piper/piper/piper",
+                    "--model",
+                    "./piper/en-us-ryan-medium.onnx",
+                    "--output_raw",
+                    "-",
+                    "|",
+                    "ffplay",
+                    "-probesize",
+                    "8192",
+                    "-f",
+                    "s16le",
+                    "-ar",
+                    "22050",
+                    "-ac",
+                    "1",
+                    "-nodisp",
+                    "-autoexit",
+                    "-",
+                ]
+            ),
             shell=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
