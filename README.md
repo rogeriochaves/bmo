@@ -101,6 +101,14 @@ Now run BMO with whisper.cpp:
 python main.py -sr whisper-cpp
 ```
 
+## Standby Mode and Wake Up Word Detection
+
+If you are going to run the assistant for longer, then you probably want to enable a wake up word, otherwise all the audio captured by the microphone will keep being streamed to the Text to Speech engine for transcription, additionally, if you leave it running on the Raspberry Pi, it will waste a lot of CPU. So instead you can enable the wake up word detection to have a behaviour similar to Alexa or Google Assistant.
+
+By default BMO is configured to listen to the keyword **Chat G-P-T** (with english pronunciation), which is detected by using very efficient and accurate processing by the [porcupine](https://github.com/Picovoice/porcupine) library. On my personal tests, the CPU from Raspberry Pi stays around 10% usage, and with my passive cooling case, the temperature stays around 40ºC, so I can leave it running the whole day.
+
+To set it up, go to [picovoice.ai](https://picovoice.ai) and get an API key, registering for a free account is enough, and then put it on `PICOVOICE_ACCESS_KEY`. You can change the keyword to be detected on the `porcupine.py` file
+
 ## Initial Prompt and Personality
 
 BMO has an initial prompt to have a very friendly personality, speaking a lot of slangs, and giving very short replies, so it is better for keeping a casual conversation. Feel free to change the prompt and play with it's personality, the initial prompt is in the `lib/chatgpt.py` file, change it there to see the effects.
