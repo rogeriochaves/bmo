@@ -6,10 +6,11 @@ from typing_extensions import Literal, TypedDict
 
 import openai
 
-from lib.elevenlabs import ElevenLabsPlayer, Player, SayPlayer, PiperPlayer
+from lib.text_to_speech import TextToSpeech
 import lib.delta_logging as delta_logging
 from lib.delta_logging import logging, log_formatter
-import lib.elevenlabs as elevenlabs
+import lib.text_to_speech as text_to_speech
+from lib.text_to_speech.native_tts import NativeTTS
 
 logger = logging.getLogger()
 
@@ -89,18 +90,25 @@ class ChatGPT:
         cls, reply_in_queue: Queue, reply_out_queue: Queue, start_time: Synchronized
     ):
         log_formatter.start_time = start_time
-        player : Player = PiperPlayer(reply_out_queue)
+        tts = ChatGPT.create_tts(reply_out_queue)
         while True:
             try:
                 conversation = reply_in_queue.get(block=True)
-                ChatGPT.non_blocking_reply(conversation, player, reply_out_queue)
-                player : Player = PiperPlayer(reply_out_queue)
+                ChatGPT.non_blocking_reply(conversation, tts, reply_out_queue)
+                # TODO: kill player once it enters sleep mode to not waste resources
+                tts = ChatGPT.create_tts(reply_out_queue)
             except Exception:
                 logging.exception("Exception thrown in reply")
-                elevenlabs.play_audio_file("error.mp3", reply_out_queue)
+                text_to_speech.play_audio_file("error.mp3", reply_out_queue)
 
     @classmethod
-    def non_blocking_reply(cls, conversation: Conversation, player: Player, reply_out_queue: Queue):
+    def create_tts(cls, reply_out_queue: Queue) -> TextToSpeech:
+        return NativeTTS(reply_out_queue)
+
+    @classmethod
+    def non_blocking_reply(
+        cls, conversation: Conversation, tts: TextToSpeech, reply_out_queue: Queue
+    ):
         def chat_completion_create():
             return openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
@@ -146,16 +154,16 @@ class ChatGPT:
             if "·" in next_sentence:
                 splitted = next_sentence.split("·")
                 to_say = "".join(splitted[:-1]).strip()
-                if len(to_say.split(" ")) >= player.min_words:
+                if len(to_say.split(" ")) >= tts.min_words:
                     next_sentence = splitted[-1]
-                    player.consume(speechify(to_say))
+                    tts.consume(speechify(to_say))
 
             if len(full_message.split(" ")) > 100:
                 break
         print("")
 
-        player.consume(speechify(next_sentence.replace("·", "").strip()))
-        player.request_to_stop()
+        tts.consume(speechify(next_sentence.replace("·", "").strip()))
+        tts.request_to_stop()
 
         full_message = full_message.replace("·", "").strip()
         assistant_message: Message = {

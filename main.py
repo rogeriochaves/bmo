@@ -12,8 +12,9 @@ from lib.interruption_detection import InterruptionDetection
 from lib.porcupine import wakeup_keywords
 from lib.utils import calculate_volume
 from lib.chatgpt import ChatGPT, Conversation, Message, initial_message
-import lib.elevenlabs as elevenlabs
-from lib.whisper import Transcriber, WhisperAPITranscriber, WhisperCppTranscriber
+import lib.text_to_speech as text_to_speech
+from lib.speech_recognition import SpeechRecognition
+from lib.speech_recognition.whisper_api import WhisperAPI
 import os
 import struct
 import pvporcupine
@@ -60,7 +61,7 @@ class AudioRecording:
 
     chat_gpt: ChatGPT
     interruption_detection: Optional[InterruptionDetection]
-    transcriber: Transcriber
+    speech_recognition: SpeechRecognition
 
     def __init__(self, recorder: PvRecorder) -> None:
         self.recorder = recorder
@@ -68,7 +69,7 @@ class AudioRecording:
         self.speaking_frame_count = 0
         self.chat_gpt = ChatGPT()
         self.interruption_detection = None
-        self.transcriber = WhisperAPITranscriber()
+        self.speech_recognition = WhisperAPI()
         self.reset("waiting_for_silence")
 
     def reset(self, state):
@@ -78,7 +79,7 @@ class AudioRecording:
         self.silence_frame_count = 0
 
         if state == "waiting_for_silence":
-            self.transcriber.restart()
+            self.speech_recognition.restart()
             self.interruption_detection = None
         elif state == "replying":
             self.interruption_detection = InterruptionDetection()
@@ -92,10 +93,10 @@ class AudioRecording:
         self.chat_gpt.stop()
         if self.interruption_detection:
             self.interruption_detection.stop()
-        self.transcriber.stop()
+        self.speech_recognition.stop()
 
     def transcribe_buffer(self):
-        self.transcriber.consume(self.recording_audio_buffer)
+        self.speech_recognition.consume(self.recording_audio_buffer)
         self.recording_audio_buffer = self.recording_audio_buffer[
             -max(frame_length * 32 * 3, 0) :
         ]
@@ -114,7 +115,7 @@ class AudioRecording:
 
         elif self.state == "start_reply":
             self.recorder.stop()
-            transcription = self.transcriber.transcribe_and_stop()
+            transcription = self.speech_recognition.transcribe_and_stop()
             if len(transcription.strip()) == 0:
                 logger.info("Transcription too small, probably a mistake, bailing out")
                 self.reset("waiting_for_silence")
@@ -151,7 +152,7 @@ class AudioRecording:
         trigger = porcupine.process(pcm)
         if trigger >= 0:
             logger.info("Detected wakeup word #%s", trigger)
-            elevenlabs.play_audio_file_non_blocking("beep2.mp3")
+            text_to_speech.play_audio_file_non_blocking("beep2.mp3")
             self.state = "start_reply"
 
     def waiting_for_silence(self, pcm: List[Any]):
@@ -194,7 +195,7 @@ class AudioRecording:
 
         if self.silence_frame_count >= silence_time_to_standby:
             logger.info("Long silence time, going back to waiting for the wakeup word")
-            elevenlabs.play_audio_file_non_blocking("byebye.mp3")
+            text_to_speech.play_audio_file_non_blocking("byebye.mp3")
             self.silence_frame_count = 0
             self.speaking_frame_count = 0
             self.state = "waiting_for_wakeup"
@@ -209,7 +210,7 @@ class AudioRecording:
                 self.conversation.append(data)
             elif action == "play_beep":
                 self.interruption_detection.pause_for(32)
-                elevenlabs.play_audio_file_non_blocking(data)
+                text_to_speech.play_audio_file_non_blocking(data)
             elif action == "reply_audio_started":
                 self.silence_frame_count = 0
                 self.speaking_frame_count = 0

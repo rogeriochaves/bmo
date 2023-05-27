@@ -3,8 +3,6 @@ import time
 import logging
 from typing import Optional
 
-# start_time: Synchronized = Value("d", time.time())
-
 
 class DeltaTimeFormatter(logging.Formatter):
     start_time: Optional[Synchronized]
