@@ -20,7 +20,10 @@ class TextToSpeech(Protocol):
     def start(self):
         pass
 
-    def request_to_stop(self):
+    def wait_to_finish(self):
+        pass
+
+    def stop(self):
         pass
 
     def consume(self, word: str):

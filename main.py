@@ -22,16 +22,12 @@ import pvporcupine
 from pvrecorder import PvRecorder
 import openai
 
-picovoice_access_key = os.environ["PICOVOICE_ACCESS_KEY"]
+picovoice_access_key = os.environ.get("PICOVOICE_ACCESS_KEY")
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
 logger = logging.getLogger()
 
-porcupine = pvporcupine.create(
-    access_key=picovoice_access_key,
-    keyword_paths=wakeup_keywords(),
-)
-frame_length = porcupine.frame_length  # 512
+frame_length = 512
 buffer_size_when_not_listening = frame_length * 32 * 2  # keeps 2s of audio
 buffer_size_on_active_listening = frame_length * 32 * 60  # keeps 60s of audio
 sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
@@ -55,6 +51,7 @@ class AudioRecording:
     state: RecordingState
     conversation: Conversation = [initial_message]
 
+    porcupine: Optional[pvporcupine.Porcupine]
     recorder: PvRecorder
     cli_args: argparse.Namespace
 
@@ -78,6 +75,14 @@ class AudioRecording:
         ]()
         self.reset("waiting_for_silence")
 
+        if picovoice_access_key:
+            self.porcupine = pvporcupine.create(
+                access_key=picovoice_access_key,
+                keyword_paths=wakeup_keywords(),
+            )
+        else:
+            self.porcupine = None
+
     def reset(self, state):
         self.recorder.start()
         self.state = state
@@ -89,6 +94,11 @@ class AudioRecording:
             self.interruption_detection = None
         elif state == "replying":
             self.interruption_detection = InterruptionDetection()
+        elif state == "waiting_for_wakeup":
+            self.silence_frame_count = 0
+            self.speaking_frame_count = 0
+            self.chat_gpt.stop()
+            self.speech_recognition.stop()
         else:
             self.speaking_frame_count = 0
             self.recording_audio_buffer = bytearray()
@@ -100,6 +110,8 @@ class AudioRecording:
         if self.interruption_detection:
             self.interruption_detection.stop()
         self.speech_recognition.stop()
+        if self.porcupine:
+            self.porcupine.delete()
 
     def transcribe_buffer(self):
         self.speech_recognition.consume(self.recording_audio_buffer)
@@ -154,11 +166,17 @@ class AudioRecording:
             ]  # drop early frames to keep just most recent audio
 
     def waiting_for_wakeup(self, pcm: List[Any]):
+        if not self.porcupine:
+            self.reset("waiting_for_silence")
+            return
         print(f"⚪️ Waiting for wake up word...", end="\r", flush=True)
-        trigger = porcupine.process(pcm)
+        trigger = self.porcupine.process(pcm)
         if trigger >= 0:
             logger.info("Detected wakeup word #%s", trigger)
             text_to_speech.play_audio_file_non_blocking("beep2.mp3")
+            self.chat_gpt.restart()
+            self.speech_recognition.restart()
+            self.transcribe_buffer()
             self.state = "start_reply"
 
     def waiting_for_silence(self, pcm: List[Any]):
@@ -199,12 +217,10 @@ class AudioRecording:
             self.transcribe_buffer()
             self.state = "start_reply"
 
-        if self.silence_frame_count >= silence_time_to_standby:
+        if self.porcupine is not None and self.silence_frame_count >= silence_time_to_standby:
             logger.info("Long silence time, going back to waiting for the wakeup word")
             text_to_speech.play_audio_file_non_blocking("byebye.mp3")
-            self.silence_frame_count = 0
-            self.speaking_frame_count = 0
-            self.state = "waiting_for_wakeup"
+            self.reset("waiting_for_wakeup")
 
     def replying_loop(self, pcm: List[Any]):
         if self.interruption_detection is None:
@@ -273,7 +289,7 @@ def main():
     start_time: Synchronized = Value("d", time.time())  # type: ignore
     log_formatter.start_time = start_time
 
-    recorder = PvRecorder(device_index=-1, frame_length=porcupine.frame_length)
+    recorder = PvRecorder(device_index=-1, frame_length=frame_length)
     audio_recording = AudioRecording(recorder, cli_args)
     try:
         while True:
@@ -283,7 +299,6 @@ def main():
         audio_recording.stop()
     finally:
         recorder.delete()
-        porcupine.delete()
 
 
 if __name__ == "__main__":

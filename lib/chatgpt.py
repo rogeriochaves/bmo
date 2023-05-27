@@ -56,7 +56,7 @@ initial_message: Message = {"role": "system", "content": prompt}
 
 class ChatGPT:
     cli_args: argparse.Namespace
-    reply_process: Optional[Process] = None
+    reply_process: Process
     reply_in_queue: Queue
     reply_out_queue: Queue
 
@@ -79,8 +79,8 @@ class ChatGPT:
         self.reply_process.start()
 
     def stop(self):
-        if self.reply_process:
-            self.reply_process.kill()
+        self.reply_in_queue.put("stop")
+        self.reply_process.terminate()
 
     def restart(self):
         self.stop()
@@ -105,8 +105,11 @@ class ChatGPT:
         while True:
             try:
                 conversation = reply_in_queue.get(block=True)
+                if conversation == "stop":
+                    tts.stop()
+                    break
+
                 ChatGPT.non_blocking_reply(conversation, tts, reply_out_queue)
-                # TODO: kill player once it enters sleep mode to not waste resources
                 tts = text_to_speech.ENGINES[cli_args.text_to_speech](reply_out_queue)
             except Exception:
                 logging.exception("Exception thrown in reply")
@@ -170,7 +173,7 @@ class ChatGPT:
         print("")
 
         tts.consume(speechify(next_sentence.replace("·", "").strip()))
-        tts.request_to_stop()
+        tts.wait_to_finish()
 
         full_message = full_message.replace("·", "").strip()
         assistant_message: Message = {

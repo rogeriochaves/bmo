@@ -64,7 +64,7 @@ However, if you really want State of the Art Text-To-Speech, with multilanguage 
 python main.py -tts elevenlabs
 ```
 
-On the Raspberry Pi, if you want to use something that is faster than Elevenlabs, but with as high quality as Siri, then you can user Piper. To use piper, first run the `piper_install.sh` script on your Raspberry Pi:
+On the Raspberry Pi, if you want to use something that is faster than Elevenlabs, but with as high quality as Siri, then you can user Piper, but only if your Raspberry Pi was installed with the 64 bit version, which should be the case for the newer installations. To use piper, first run the `piper_install.sh` script on your Raspberry Pi:
 
 ```
 ./piper_install.sh

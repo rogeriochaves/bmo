@@ -56,10 +56,14 @@ class PiperTTS:
         self.from_piper_to_ffplay = Thread(target=self.play_as_available)
         self.from_piper_to_ffplay.start()
 
-    def request_to_stop(self):
+    def wait_to_finish(self):
+        self.stop()
+
+    def stop(self):
         self.requested_to_stop = True
         remaining, _ = self.piper.communicate()
-        self.ffplay.stdin.write(remaining)  # type: ignore
+        if remaining is not None:
+            self.ffplay.stdin.write(remaining)  # type: ignore
         self.ffplay.stdin.close()  # type: ignore
         self.ffplay.wait()
 

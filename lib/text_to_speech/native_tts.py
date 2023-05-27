@@ -23,13 +23,16 @@ class NativeTTS:
     def start(self):
         pass
 
-    def request_to_stop(self):
+    def wait_to_finish(self):
         self.local_queue = Queue()
         while True:
             action, data = self.local_queue.get(block=True)
             self.reply_out_queue.put((action, data))
             if action == "reply_audio_ended":
                 break
+
+    def stop(self):
+        pass
 
     def consume(self, word: str):
         if self.word_index == 0:

@@ -46,7 +46,7 @@ class ElevenLabsAPI:
             stderr=subprocess.STDOUT,
         )
 
-    def request_to_stop(self):
+    def wait_to_finish(self):
         self.requested_to_stop = True
         while True:
             action, data = self.local_queue.get(block=True)
@@ -54,7 +54,7 @@ class ElevenLabsAPI:
             if action == "reply_audio_ended":
                 break
 
-    def _terminate(self):
+    def stop(self):
         self.ffplay.stdin.close()  # type: ignore
         self.ffplay.wait()
         self.local_queue.put(("reply_audio_ended", None))
@@ -102,7 +102,7 @@ class ElevenLabsAPI:
     def play_next_chunks(self):
         if self.playing_index not in self.audio_chunks:
             if self.requested_to_stop:
-                self._terminate()
+                self.stop()
             return
 
         if self.ffplay.poll() is not None:
