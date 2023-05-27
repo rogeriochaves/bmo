@@ -223,7 +223,7 @@ class PiperPlayer:
     def request_to_stop(self):
         self.requested_to_stop = True
         remaining, _ = self.piper.communicate()
-        self.ffplay.stdin.write(remaining)
+        self.ffplay.stdin.write(remaining)  # type: ignore
         self.ffplay.stdin.close()  # type: ignore
         self.ffplay.wait()
 
@@ -240,11 +240,11 @@ class PiperPlayer:
         first = True
         while not self.requested_to_stop:
             # Wait for data to become available
-            ready_to_read, _, _ = select.select([self.piper.stdout.fileno()], [], [])
+            ready_to_read, _, _ = select.select([self.piper.stdout.fileno()], [], [])  # type: ignore
             for stream in ready_to_read:
                 if self.requested_to_stop:
                     return
-                if stream == self.piper.stdout.fileno():
+                if stream == self.piper.stdout.fileno():  # type: ignore
                     output = self.piper.stdout.read1(512 * 32)  # type: ignore
                     if output:
                         if first:
