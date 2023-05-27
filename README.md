@@ -1,8 +1,22 @@
 # BMO Voice Assistant
 
+![a picture of BMO from Adventure Time](./docs/BMO.webp)
+
 BMO is a fast, open-source voice assistant using Speech Recognition (Whisper or whisper.cpp) + LLM (ChatGPT) + Text-To-Speech (espeak-ng, Elevenlabs or Piper) that runs on macOS and Raspberry PI with multi-language support
 
-## Setup
+## Features
+
+✅ Wake up keyword detection
+
+✅ Interruption detection
+
+✅ Streamed speech recognition
+
+✅ Streamed chatgpt reply
+
+✅ Streamed text-to-speech audio
+
+## Installation
 
 To run BMO, first you will need to have at least python 3.7 version installed on your macOS or Raspberry PI, check it with:
 
@@ -86,3 +100,7 @@ Now run BMO with whisper.cpp:
 ```
 python main.py -sr whisper-cpp
 ```
+
+## Initial Prompt and Personality
+
+BMO has an initial prompt to have a very friendly personality, speaking a lot of slangs, and giving very short replies, so it is better for keeping a casual conversation. Feel free to change the prompt and play with it's personality, the initial prompt is in the `lib/chatgpt.py` file, change it there to see the effects.
