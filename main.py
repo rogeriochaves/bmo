@@ -68,7 +68,7 @@ class AudioRecording:
         self.speaking_frame_count = 0
         self.chat_gpt = ChatGPT()
         self.interruption_detection = None
-        self.transcriber = WhisperCppTranscriber()
+        self.transcriber = WhisperAPITranscriber()
         self.reset("waiting_for_silence")
 
     def reset(self, state):

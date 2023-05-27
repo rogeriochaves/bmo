@@ -6,7 +6,7 @@ from typing_extensions import Literal, TypedDict
 
 import openai
 
-from lib.elevenlabs import ElevenLabsPlayer, Player, SayPlayer
+from lib.elevenlabs import ElevenLabsPlayer, Player, SayPlayer, PiperPlayer
 import lib.delta_logging as delta_logging
 from lib.delta_logging import logging, log_formatter
 import lib.elevenlabs as elevenlabs
@@ -108,13 +108,13 @@ class ChatGPT:
                 stream=True,
             )
 
+        player : Player = PiperPlayer(reply_out_queue)
+
         # retry once
         try:
             stream: Any = chat_completion_create()
         except:
             stream: Any = chat_completion_create()
-
-        player : Player = ElevenLabsPlayer(reply_out_queue)
 
         full_message = ""
         next_sentence = ""
@@ -148,13 +148,13 @@ class ChatGPT:
                 to_say = "".join(splitted[:-1]).strip()
                 if len(to_say.split(" ")) >= player.min_words:
                     next_sentence = splitted[-1]
-                    player.consume(to_say)
+                    player.consume(speechify(to_say))
 
             if len(full_message.split(" ")) > 100:
                 break
         print("")
 
-        player.consume(next_sentence.replace("·", "").strip())
+        player.consume(speechify(next_sentence.replace("·", "").strip()))
         player.request_to_stop()
 
         full_message = full_message.replace("·", "").strip()
@@ -164,3 +164,7 @@ class ChatGPT:
         }
 
         reply_out_queue.put(("assistent_message", assistant_message))
+
+
+def speechify(text: str):
+    return text.replace("#", "hashtag ")

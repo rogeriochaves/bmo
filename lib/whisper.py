@@ -144,7 +144,9 @@ class WhisperAPITranscriber:
         if len(results) == 1 and isinstance(results[0], Exception):
             raise results[0]
 
-        return " ".join([r for r in results if type(r) == str])
+        result = " ".join([r for r in results if type(r) == str])
+        logger.info("Transcription: %s", result)
+        return result
 
     def create_audio_file(self, recording_audio_buffer):
         virtual_file = BytesIO()

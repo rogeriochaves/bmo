@@ -7,6 +7,7 @@ from typing import Dict, Iterator, List, Union
 from typing_extensions import Literal, Protocol
 from elevenlabs import generate, Voice, VoiceSettings
 from lib.delta_logging import logging
+import time
 
 eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 
@@ -31,7 +32,7 @@ class Player(Protocol):
 
 
 class SayPlayer:
-    min_words = 1
+    min_words = 2
     reply_out_queue: multiprocessing.Queue
     word_index: int
     playing_index: int
@@ -134,7 +135,7 @@ class ElevenLabsPlayer:
                     similarity_boost=VOICE_SETTINGS_SIMILARITY_BOOST,
                 ),
             ),  # type: ignore
-            text=self.speechify(word),
+            text=word,
             stream=True,
         )
 
@@ -169,8 +170,50 @@ class ElevenLabsPlayer:
 
             self.ffplay.stdin.write(audio_chunk)  # type: ignore
 
-    def speechify(self, word: str):
-        return word.replace("#", "hashtag ")
+
+class PiperPlayer:
+    min_words = 2
+    piper: subprocess.Popen
+    reply_out_queue: multiprocessing.Queue
+    first: bool
+
+    def __init__(self, reply_out_queue: multiprocessing.Queue) -> None:
+        self.reply_out_queue = reply_out_queue
+        self.start()
+
+    def start(self):
+        self.first = True
+        self.piper = subprocess.Popen(
+            " ".join([
+                "./piper/piper/piper",
+                "--model",
+                "./piper/en-us-ryan-medium.onnx",
+                "--output_raw",
+                "-",
+                "|",
+                "ffplay", "-probesize", "8192", "-f", "s16le", "-ar", "22050", "-ac", "1", "-nodisp", "-autoexit", "-"
+            ]),
+            shell=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
+
+    def request_to_stop(self):
+        self.piper.stdin.close()  # type: ignore
+        self.piper.wait()
+
+        self.reply_out_queue.put(("reply_audio_ended", None))
+
+    def consume(self, word: str):
+        if word == "":
+            return
+        if self.first:
+            self.reply_out_queue.put(("reply_audio_started", self.piper.pid))
+            self.first = False
+
+        self.piper.stdin.write((word + "\n").encode("utf-8"))  # type: ignore
+        self.piper.stdin.flush()
 
 
 def play_audio_file_non_blocking(audio_file):
