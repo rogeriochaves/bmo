@@ -18,7 +18,7 @@ class WhisperCpp:
             args=[
                 "./whisper.cpp/stream",
                 "-m",
-                "./whisper.cpp/models/ggml-tiny.en.bin",
+                "./whisper.cpp/models/ggml-medium.en.bin",
                 "-t",
                 "8",
                 "--step",
