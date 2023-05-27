@@ -1,3 +1,4 @@
+import argparse
 from multiprocessing import Value
 from multiprocessing.sharedctypes import Synchronized
 import time
@@ -13,8 +14,8 @@ from lib.porcupine import wakeup_keywords
 from lib.utils import calculate_volume
 from lib.chatgpt import ChatGPT, Conversation, Message, initial_message
 import lib.text_to_speech as text_to_speech
+import lib.speech_recognition as speech_recognition
 from lib.speech_recognition import SpeechRecognition
-from lib.speech_recognition.whisper_api import WhisperAPI
 import os
 import struct
 import pvporcupine
@@ -54,22 +55,27 @@ class AudioRecording:
     state: RecordingState
     conversation: Conversation = [initial_message]
 
+    recorder: PvRecorder
+    cli_args: argparse.Namespace
+
     silence_frame_count: int
     speaking_frame_count: int
     recording_audio_buffer: bytearray
-    recorder: PvRecorder
 
     chat_gpt: ChatGPT
     interruption_detection: Optional[InterruptionDetection]
     speech_recognition: SpeechRecognition
 
-    def __init__(self, recorder: PvRecorder) -> None:
+    def __init__(self, recorder: PvRecorder, cli_args: argparse.Namespace) -> None:
         self.recorder = recorder
+        self.cli_args = cli_args
         self.recording_audio_buffer = bytearray()
         self.speaking_frame_count = 0
-        self.chat_gpt = ChatGPT()
+        self.chat_gpt = ChatGPT(cli_args)
         self.interruption_detection = None
-        self.speech_recognition = WhisperAPI()
+        self.speech_recognition = speech_recognition.ENGINES[
+            cli_args.speech_recognition
+        ]()
         self.reset("waiting_for_silence")
 
     def reset(self, state):
@@ -242,11 +248,33 @@ class AudioRecording:
 
 
 def main():
-    start_time : Synchronized = Value("d", time.time())  # type: ignore
+    parser = argparse.ArgumentParser(
+        description="BMO, the open-source voice assistant with replaceable parts"
+    )
+    parser.add_argument(
+        "-sr",
+        "--speech-recognition",
+        dest="speech_recognition",
+        choices=["whisper", "whisper-cpp"],
+        default="whisper",
+        help="Choose the speech recognition engine to be used, default to whisper",
+    )
+    parser.add_argument(
+        "-tts",
+        "--text-to-speech",
+        dest="text_to_speech",
+        choices=text_to_speech.ENGINES.keys(),
+        default="native",
+        help="Choose the text-to-speech engine to be used, default to native",
+    )
+
+    cli_args = parser.parse_args()
+
+    start_time: Synchronized = Value("d", time.time())  # type: ignore
     log_formatter.start_time = start_time
 
     recorder = PvRecorder(device_index=-1, frame_length=porcupine.frame_length)
-    audio_recording = AudioRecording(recorder)
+    audio_recording = AudioRecording(recorder, cli_args)
     try:
         while True:
             audio_recording.next_frame()

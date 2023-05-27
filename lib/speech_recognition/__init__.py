@@ -1,8 +1,10 @@
-from abc import abstractmethod
 import subprocess
+from typing import Dict, Type
 from typing_extensions import Protocol
 
 from lib.delta_logging import logging
+from lib.speech_recognition.whisper_api import WhisperAPI
+from lib.speech_recognition.whisper_cpp import WhisperCpp
 
 logger = logging.getLogger()
 
@@ -11,7 +13,6 @@ class SpeechRecognition(Protocol):
     def restart(self):
         pass
 
-    @abstractmethod
     def stop(self):
         pass
 
@@ -21,6 +22,10 @@ class SpeechRecognition(Protocol):
     def transcribe_and_stop(self) -> str:
         return ""
 
+ENGINES : Dict[str, Type[SpeechRecognition]] = {
+    "whisper": WhisperAPI,
+    "whisper-cpp": WhisperCpp
+}
 
 def transcribe(file) -> str:
     whispercpp = subprocess.Popen(

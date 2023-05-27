@@ -1,3 +1,4 @@
+import argparse
 from multiprocessing import Process, Queue
 from multiprocessing.sharedctypes import Synchronized
 import os
@@ -10,7 +11,6 @@ from lib.text_to_speech import TextToSpeech
 import lib.delta_logging as delta_logging
 from lib.delta_logging import logging, log_formatter
 import lib.text_to_speech as text_to_speech
-from lib.text_to_speech.native_tts import NativeTTS
 
 logger = logging.getLogger()
 
@@ -55,11 +55,13 @@ initial_message: Message = {"role": "system", "content": prompt}
 
 
 class ChatGPT:
+    cli_args: argparse.Namespace
     reply_process: Optional[Process] = None
     reply_in_queue: Queue
     reply_out_queue: Queue
 
-    def __init__(self) -> None:
+    def __init__(self, cli_args: argparse.Namespace) -> None:
+        self.cli_args = cli_args
         self.start()
 
     def start(self):
@@ -67,7 +69,12 @@ class ChatGPT:
         self.reply_out_queue = Queue()
         self.reply_process = Process(
             target=ChatGPT.reply_loop,
-            args=(self.reply_in_queue, self.reply_out_queue, log_formatter.start_time),
+            args=(
+                self.cli_args,
+                self.reply_in_queue,
+                self.reply_out_queue,
+                log_formatter.start_time,
+            ),
         )
         self.reply_process.start()
 
@@ -87,23 +94,23 @@ class ChatGPT:
 
     @classmethod
     def reply_loop(
-        cls, reply_in_queue: Queue, reply_out_queue: Queue, start_time: Synchronized
+        cls,
+        cli_args: argparse.Namespace,
+        reply_in_queue: Queue,
+        reply_out_queue: Queue,
+        start_time: Synchronized,
     ):
         log_formatter.start_time = start_time
-        tts = ChatGPT.create_tts(reply_out_queue)
+        tts = text_to_speech.ENGINES[cli_args.text_to_speech](reply_out_queue)
         while True:
             try:
                 conversation = reply_in_queue.get(block=True)
                 ChatGPT.non_blocking_reply(conversation, tts, reply_out_queue)
                 # TODO: kill player once it enters sleep mode to not waste resources
-                tts = ChatGPT.create_tts(reply_out_queue)
+                tts = text_to_speech.ENGINES[cli_args.text_to_speech](reply_out_queue)
             except Exception:
                 logging.exception("Exception thrown in reply")
                 text_to_speech.play_audio_file("error.mp3", reply_out_queue)
-
-    @classmethod
-    def create_tts(cls, reply_out_queue: Queue) -> TextToSpeech:
-        return NativeTTS(reply_out_queue)
 
     @classmethod
     def non_blocking_reply(

@@ -1,7 +1,11 @@
 import multiprocessing
 import subprocess
+from typing import Dict, Type
 from typing_extensions import Protocol
 from lib.delta_logging import logging
+from lib.text_to_speech.elevenlabs_api import ElevenLabsAPI
+from lib.text_to_speech.native_tts import NativeTTS
+from lib.text_to_speech.piper_tts import PiperTTS
 
 
 logger = logging.getLogger()
@@ -9,6 +13,9 @@ logger = logging.getLogger()
 
 class TextToSpeech(Protocol):
     min_words: int
+
+    def __init__(self, reply_out_queue: multiprocessing.Queue) -> None:
+        pass
 
     def start(self):
         pass
@@ -18,6 +25,13 @@ class TextToSpeech(Protocol):
 
     def consume(self, word: str):
         pass
+
+
+ENGINES: Dict[str, Type[TextToSpeech]] = {
+    "native": NativeTTS,
+    "elevenlabs": ElevenLabsAPI,
+    "piper": PiperTTS,
+}
 
 
 def play_audio_file_non_blocking(audio_file):
