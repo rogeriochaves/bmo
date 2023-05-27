@@ -16,6 +16,8 @@ BMO is a fast, open-source voice assistant using Speech Recognition (Whisper or 
 
 ✅ Streamed text-to-speech audio
 
+✅ Multi-language (basically it understands all languages with Whisper and ChatGPT, and speaks English, German, Polish, Spanish, Italian, French, Portuguese and Hindi with Elevenlabs)
+
 ## Installation
 
 To run BMO, first you will need to have at least python 3.7 version installed on your macOS or Raspberry PI, check it with:
