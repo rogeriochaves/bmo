@@ -35,6 +35,8 @@ class NativeTTS:
         pass
 
     def consume(self, word: str):
+        if word == "":
+            return
         if self.word_index == 0:
             logger.info("First audio chunk arrived")
             self.reply_out_queue.put(("reply_audio_started", -1))

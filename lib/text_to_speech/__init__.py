@@ -1,6 +1,6 @@
 import multiprocessing
 import subprocess
-from typing import Dict, Type
+from typing import Dict, Optional, Type
 from typing_extensions import Protocol
 from lib.delta_logging import logging
 from lib.text_to_speech.elevenlabs_api import ElevenLabsAPI
@@ -46,14 +46,16 @@ def play_audio_file_non_blocking(audio_file):
     )
 
 
-def play_audio_file(filename, reply_out_queue: multiprocessing.Queue):
+def play_audio_file(filename, reply_out_queue: Optional[multiprocessing.Queue] = None):
     filename = f"static/{filename}"
     ffplay = subprocess.Popen(
         ["ffplay", filename, "-autoexit", "-nodisp"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
     )
-    reply_out_queue.put(("reply_audio_started", ffplay.pid))
+    if reply_out_queue is not None:
+        reply_out_queue.put(("reply_audio_started", ffplay.pid))
     ffplay.wait()
     logger.info("Playing audio done")
-    reply_out_queue.put(("reply_audio_ended", None))
+    if reply_out_queue is not None:
+        reply_out_queue.put(("reply_audio_ended", None))

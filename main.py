@@ -95,6 +95,7 @@ class AudioRecording:
         elif state == "replying":
             self.interruption_detection = InterruptionDetection()
         elif state == "waiting_for_wakeup":
+            text_to_speech.play_audio_file_non_blocking("beep_standby.mp3")
             self.silence_frame_count = 0
             self.speaking_frame_count = 0
             self.chat_gpt.stop()
@@ -173,7 +174,7 @@ class AudioRecording:
         trigger = self.porcupine.process(pcm)
         if trigger >= 0:
             logger.info("Detected wakeup word #%s", trigger)
-            text_to_speech.play_audio_file_non_blocking("beep2.mp3")
+            text_to_speech.play_audio_file_non_blocking("beep_wakeup.mp3")
             self.chat_gpt.restart()
             self.speech_recognition.restart()
             self.transcribe_buffer()
@@ -217,9 +218,13 @@ class AudioRecording:
             self.transcribe_buffer()
             self.state = "start_reply"
 
-        if self.porcupine is not None and self.silence_frame_count >= silence_time_to_standby:
+        if (
+            self.porcupine is not None
+            and self.silence_frame_count >= silence_time_to_standby
+        ):
             logger.info("Long silence time, going back to waiting for the wakeup word")
-            text_to_speech.play_audio_file_non_blocking("byebye.mp3")
+            self.recorder.stop()
+            text_to_speech.play_audio_file("byebye.mp3")
             self.reset("waiting_for_wakeup")
 
     def replying_loop(self, pcm: List[Any]):
@@ -230,15 +235,15 @@ class AudioRecording:
             (action, data) = self.chat_gpt.get(block=False)
             if action == "assistent_message":
                 self.conversation.append(data)
-            elif action == "play_beep":
-                self.interruption_detection.pause_for(32)
-                text_to_speech.play_audio_file_non_blocking(data)
             elif action == "reply_audio_started":
                 self.silence_frame_count = 0
                 self.speaking_frame_count = 0
                 self.interruption_detection.start_reply_interruption_check(data)
             elif action == "reply_audio_ended":
                 self.interruption_detection.stop()
+                if "🔚" in self.conversation[-1]["content"]:
+                    self.reset("waiting_for_wakeup")
+                    return
         except Empty:
             pass
 
