@@ -73,8 +73,9 @@ class ChatGPT:
         self.reply_process.start()
 
     def stop(self):
-        self.reply_in_queue.put("stop")
-        self.reply_process.terminate()
+        if self.reply_process.is_alive():
+            self.reply_in_queue.put("stop")
+            self.reply_process.terminate()
 
     def restart(self):
         self.stop()
