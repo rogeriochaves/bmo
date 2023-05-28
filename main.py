@@ -1,4 +1,5 @@
 import argparse
+import math
 from multiprocessing import Value
 from multiprocessing.sharedctypes import Synchronized
 from threading import Thread
@@ -29,7 +30,6 @@ openai.api_key = os.environ["OPENAI_API_KEY"]
 logger = logging.getLogger()
 
 frame_length = 512
-buffer_size_when_not_listening = frame_length * 32 * 2  # keeps 2s of audio
 buffer_size_on_active_listening = frame_length * 32 * 60  # keeps 60s of audio
 sample_rate = 16000  # sample rate for Porcupine is fixed at 16kHz
 silence_threshold = 300  # maybe need to be adjusted
@@ -78,7 +78,7 @@ class AudioRecording:
             cli_args.speech_recognition
         ]()
         self.speech_recognition.restart()
-        self.reset("waiting_for_silence")
+        self.switch("waiting_for_silence")
 
         if picovoice_access_key:
             self.porcupine = pvporcupine.create(
@@ -88,7 +88,37 @@ class AudioRecording:
         else:
             self.porcupine = None
 
-    def reset(self, state):
+    def stop(self):
+        self.recorder.stop()
+        self.chat_gpt.stop()
+        self.interruption_detection.stop()
+        self.speech_recognition.stop()
+        if self.porcupine:
+            self.porcupine.delete()
+
+    def sleep(self):
+        text_to_speech.play_audio_file_non_blocking("beep_standby.mp3")
+        self.silence_frame_count = 0
+        self.speaking_frame_count = 0
+        self.recording_audio_buffer = bytearray()
+        self.chat_gpt.stop()
+        self.speech_recognition.stop()
+        self.interruption_detection.stop()
+
+    def wake_up(self):
+        self.chat_gpt.restart()
+        self.speech_recognition.restart()
+        self.interruption_detection.start()
+        self.interruption_detection.pause_for(round(32 * 1.2))  # beep_wakeup duration
+        text_to_speech.play_audio_file_non_blocking("beep_wakeup.mp3")
+
+        user_message: Message = {"role": "user", "content": "Hey, ChatGPT!"}
+        self.conversation.append(user_message)
+
+        self.switch("replying")
+        self.chat_gpt.reply(self.conversation)
+
+    def switch(self, state: RecordingState):
         self.recorder.start()
         self.state = state
 
@@ -101,20 +131,48 @@ class AudioRecording:
         elif state == "start_reply":
             pass
         elif state == "waiting_for_wakeup":
-            text_to_speech.play_audio_file_non_blocking("beep_standby.mp3")
-            self.silence_frame_count = 0
-            self.speaking_frame_count = 0
-            self.chat_gpt.stop()
-            self.speech_recognition.stop()
-            self.interruption_detection.stop()
+            self.sleep()
 
-    def stop(self):
-        self.recorder.stop()
-        self.chat_gpt.stop()
-        self.interruption_detection.stop()
-        self.speech_recognition.stop()
-        if self.porcupine:
-            self.porcupine.delete()
+    def next_frame(self):
+        pcm = self.recorder.read()
+
+        if self.state == "waiting_for_wakeup":
+            self.waiting_for_wakeup(pcm)
+            return
+
+        self.recording_audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
+        self.drop_early_recording_audio_frames()
+
+        if self.state == "waiting_for_silence":
+            self.waiting_for_silence(pcm)
+
+        elif self.state == "start_reply":
+            start_reply_thread = Thread(target=self.start_reply_async)
+            start_reply_thread.start()
+            self.switch("replying")
+
+        elif self.state == "replying":
+            self.replying_loop(pcm)
+
+    def start_reply_async(self):
+        transcription = self.speech_recognition.transcribe_and_stop()
+        if (
+            len(transcription.strip()) == 0
+            and self.conversation[-1]["role"] == "assistant"
+        ):
+            logger.info("Transcription too small, probably a mistake, bailing out")
+            self.switch("waiting_for_silence")
+            return
+
+        if self.state != "replying":
+            return  # probably got interrupted
+
+        if len(transcription.strip()) > 0:
+            user_message: Message = {"role": "user", "content": transcription}
+            self.conversation.append(user_message)
+        self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
+
+        self.chat_gpt.reply(self.conversation)
 
     def transcribe_buffer(self):
         self.speech_recognition.consume(self.recording_audio_buffer)
@@ -122,59 +180,19 @@ class AudioRecording:
             -max(frame_length * 32 * 3, 0) :
         ]
 
-    def next_frame(self):
-        pcm = self.recorder.read()
-
-        self.recording_audio_buffer.extend(struct.pack("h" * len(pcm), *pcm))
-        self.drop_early_recording_audio_frames()
-
-        if self.state == "waiting_for_wakeup":
-            self.waiting_for_wakeup(pcm)
-
-        elif self.state == "waiting_for_silence":
-            self.waiting_for_silence(pcm)
-
-        elif self.state == "start_reply":
-            start_reply_thread = Thread(target=self.start_reply_async)
-            start_reply_thread.start()
-            self.reset("replying")
-
-        elif self.state == "replying":
-            self.replying_loop(pcm)
-
-    def start_reply_async(self):
-        transcription = self.speech_recognition.transcribe_and_stop()
-        if len(transcription.strip()) == 0:
-            logger.info("Transcription too small, probably a mistake, bailing out")
-            self.reset("waiting_for_silence")
-            return
-
-        if self.state != "replying":
-            return  # probably got interrupted
-
-        user_message: Message = {"role": "user", "content": transcription}
-        self.conversation.append(user_message)
-        self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
-
-        self.chat_gpt.reply(self.conversation)
-
     def is_silence(self, pcm):
         rms = calculate_volume(pcm)
         return rms < silence_threshold
 
     def drop_early_recording_audio_frames(self):
-        if len(self.recording_audio_buffer) > (
-            buffer_size_when_not_listening
-            if self.state == "waiting_for_wakeup"
-            else buffer_size_on_active_listening
-        ):
+        if len(self.recording_audio_buffer) > buffer_size_on_active_listening:
             self.recording_audio_buffer = self.recording_audio_buffer[
                 frame_length:
             ]  # drop early frames to keep just most recent audio
 
     def waiting_for_wakeup(self, pcm: List[Any]):
         if not self.porcupine:
-            self.reset("waiting_for_silence")
+            self.switch("waiting_for_silence")
             return
         if time.time() - self.recorder_started_at > restart_recorder_every:
             self.recorder.stop()
@@ -185,12 +203,7 @@ class AudioRecording:
         trigger = self.porcupine.process(pcm)
         if trigger >= 0:
             logger.info("Detected wakeup word #%s", trigger)
-            text_to_speech.play_audio_file_non_blocking("beep_wakeup.mp3")
-            self.chat_gpt.restart()
-            self.speech_recognition.restart()
-            self.interruption_detection.start()
-            self.transcribe_buffer()
-            self.state = "start_reply"
+            self.wake_up()
 
     def waiting_for_silence(self, pcm: List[Any]):
         is_silence = self.is_silence(pcm)
@@ -228,7 +241,7 @@ class AudioRecording:
         ):
             logger.info("Detected silence a while after speaking, giving a reply")
             self.transcribe_buffer()
-            self.state = "start_reply"
+            self.switch("start_reply")
 
         if (
             self.porcupine is not None
@@ -237,7 +250,7 @@ class AudioRecording:
             logger.info("Long silence time, going back to waiting for the wakeup word")
             self.recorder.stop()
             text_to_speech.play_audio_file("byebye.mp3")
-            self.reset("waiting_for_wakeup")
+            self.switch("waiting_for_wakeup")
 
     def replying_loop(self, pcm: List[Any]):
         try:
@@ -252,7 +265,7 @@ class AudioRecording:
             elif action == "reply_audio_ended":
                 self.interruption_detection.stop()
                 if "🔚" in self.conversation[-1]["content"]:
-                    self.reset("waiting_for_wakeup")
+                    self.switch("waiting_for_wakeup")
                     return
         except Empty:
             pass
@@ -262,7 +275,7 @@ class AudioRecording:
                 -frame_length * 2 :
             ]  # Capture the last couple frames for better follow up after assistant reply
             self.speaking_frame_count = 0
-            self.reset("waiting_for_silence")
+            self.switch("waiting_for_silence")
         else:
             is_silence = self.is_silence(pcm)
             interrupted = self.interruption_detection.check_for_interruption(
@@ -275,7 +288,8 @@ class AudioRecording:
                 self.recording_audio_buffer = self.recording_audio_buffer[
                     -frame_length * 32 * 2 :
                 ]
-                self.reset("waiting_for_silence")
+                self.speaking_frame_count = math.ceil(speaking_minimum)
+                self.switch("waiting_for_silence")
 
 
 def main():
