@@ -1,5 +1,6 @@
 import multiprocessing
 from multiprocessing import Queue
+import platform
 import subprocess
 from threading import Thread
 from lib.delta_logging import logging
@@ -47,7 +48,10 @@ class NativeTTS:
     def generate_async(self, word: str, index: int):
         while self.playing_index != index:
             pass
-        subprocess.call(["say", word, "-r", "200"])
+        if platform.system() == "Darwin":
+            subprocess.call(["say", word, "-r", "200"])
+        else:
+            subprocess.call(["espeak-ng", word])
         self.playing_index += 1
         if self.playing_index == self.word_index:
             self.local_queue.put(("reply_audio_ended", None))
