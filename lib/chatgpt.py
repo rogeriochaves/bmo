@@ -121,10 +121,18 @@ class ChatGPT:
                 stream=True,
             )
 
-        # retry once
+        def flush_to_tts(next_sentence, split_token, join_token=""):
+            splitted = next_sentence.split(split_token)
+            to_say = join_token.join(splitted[:-1]).strip()
+            if len(to_say.split(" ")) >= tts.min_words:
+                next_sentence = splitted[-1]
+                tts.consume(speechify(to_say))
+            return next_sentence
+
         try:
             stream: Any = chat_completion_create()
         except:
+            # retry once
             stream: Any = chat_completion_create()
 
         full_message = ""
@@ -142,6 +150,7 @@ class ChatGPT:
                 .replace(".", ".·")
                 .replace(",", ",·")
                 .replace("- ", "-· ")
+                .replace("/ ", "/· ")
             )
             if first:
                 delta_logging.handler.terminator = ""
@@ -155,11 +164,14 @@ class ChatGPT:
             next_sentence += token
 
             if "·" in next_sentence:
-                splitted = next_sentence.split("·")
-                to_say = "".join(splitted[:-1]).strip()
-                if len(to_say.split(" ")) >= tts.min_words:
-                    next_sentence = splitted[-1]
-                    tts.consume(speechify(to_say))
+                next_sentence = flush_to_tts(next_sentence, split_token="·")
+
+            if (
+                len(next_sentence.split(" ")) > 20
+            ):  # flush if over 20 words already without stop points
+                next_sentence = flush_to_tts(
+                    next_sentence, split_token=" ", join_token=" "
+                )
 
             if len(full_message.split(" ")) > 100:
                 break
