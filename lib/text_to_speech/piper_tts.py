@@ -16,6 +16,7 @@ class PiperTTS:
     reply_out_queue: multiprocessing.Queue
     local_queue: Queue
     requested_to_stop: bool
+    first: bool
 
     def __init__(self, reply_out_queue: multiprocessing.Queue) -> None:
         self.reply_out_queue = reply_out_queue
@@ -23,6 +24,7 @@ class PiperTTS:
 
     def start(self):
         self.requested_to_stop = False
+        self.first = True
         self.piper = subprocess.Popen(
             [
                 "./piper/piper/piper",
@@ -64,7 +66,7 @@ class PiperTTS:
         self.requested_to_stop = True
         remaining, _ = self.piper.communicate()
         if remaining is not None:
-            self.ffplay.stdin.write(remaining)  # type: ignore
+            self.play_chunk(remaining)
         self.ffplay.stdin.close()  # type: ignore
         self.ffplay.wait()
 
@@ -78,7 +80,6 @@ class PiperTTS:
         self.piper.stdin.flush()  # type: ignore
 
     def play_as_available(self):
-        first = True
         while not self.requested_to_stop:
             # Wait for data to become available
             ready_to_read, _, _ = select.select([self.piper.stdout.fileno()], [], [])  # type: ignore
@@ -88,13 +89,16 @@ class PiperTTS:
                 if stream == self.piper.stdout.fileno():  # type: ignore
                     output = self.piper.stdout.read1(512 * 32)  # type: ignore
                     if output:
-                        if first:
-                            logger.info("First audio chunk arrived")
-                            self.reply_out_queue.put(
-                                ("reply_audio_started", self.ffplay.pid)
-                            )
-                            first = False
-                        self.ffplay.stdin.write(output)  # type: ignore
+                        self.play_chunk(output)
                     else:
                         # No more output, break the loop
                         return
+
+    def play_chunk(self, output):
+        if self.first:
+            logger.info("First audio chunk arrived")
+            self.reply_out_queue.put(
+                ("reply_audio_started", self.ffplay.pid)
+            )
+            self.first = False
+        self.ffplay.stdin.write(output)  # type: ignore
