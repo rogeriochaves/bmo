@@ -138,7 +138,7 @@ class ChatGPT:
 
         full_message = ""
         next_sentence = ""
-        first_token = None
+        first = True
 
         for response in stream:
             if "content" not in response.choices[0].delta:
@@ -153,11 +153,13 @@ class ChatGPT:
                 .replace("- ", "-· ")
                 .replace("/ ", "/· ")
             )
-            if not first_token:
+            if first:
+                delta_logging.handler.terminator = ""
                 logger.info("Chat GPT reply: %s", token)
-                first_token = token
+                delta_logging.handler.terminator = "\n"
+                first = False
             else:
-                update_log(first_token=first_token, full_message=full_message)
+                print(token, end="", flush=True)
 
             full_message += token
             next_sentence += token
@@ -174,6 +176,7 @@ class ChatGPT:
 
             if len(full_message.split(" ")) > 100:
                 break
+        print("")
 
         full_message = full_message.replace("·", "").strip()
         assistant_message: Message = {
@@ -189,29 +192,3 @@ class ChatGPT:
 
 def speechify(text: str):
     return text.replace("#", "hashtag ").replace("🔚", "").strip()
-
-
-def update_log(first_token: str, full_message: str):
-    log_lines = delta_logging.log_stream.getvalue().split("\n")
-    reply_idx = (
-        next(
-            (
-                i
-                for i, line in enumerate(reversed(log_lines))
-                if "Chat GPT reply" in line
-            ),
-            None,
-        )
-        or 1
-    ) + 1
-    erase = "\x1b[1A\x1b[2K"
-    for _ in range(reply_idx - 1):
-        print(erase, end="")
-    print(
-        log_lines[-reply_idx].replace(
-            f"Chat GPT reply: {first_token}",
-            f"Chat GPT reply: {full_message}",
-        )
-    )
-    for line in log_lines[-reply_idx + 1 : -1]:
-        print(line)

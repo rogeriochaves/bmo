@@ -1,4 +1,3 @@
-from io import StringIO
 from multiprocessing.sharedctypes import Synchronized
 import time
 import logging
@@ -27,12 +26,8 @@ red = "\x1b[31;20m"
 blue = "\x1b[34;20m"
 reset = "\x1b[0m"
 handler = logging.StreamHandler()
-log_stream = StringIO()
-log_stream_handler = logging.StreamHandler(stream=log_stream)
 LOGFORMAT = blue + "+%(delta)-7s " + reset + " %(levelname)s: %(message)s"
 log_formatter = DeltaTimeFormatter(LOGFORMAT)
 handler.setFormatter(log_formatter)
-log_stream_handler.setFormatter(log_formatter)
 logging.getLogger().addHandler(handler)
-logging.getLogger().addHandler(log_stream_handler)
 logging.getLogger().setLevel(logging.INFO)
