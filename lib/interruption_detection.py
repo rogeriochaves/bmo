@@ -1,7 +1,7 @@
 import multiprocessing
 from multiprocessing import Process, Queue
 from queue import Empty
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 import numpy as np
 
 from lib.utils import terminate_pid_safely, calculate_volume
@@ -20,8 +20,8 @@ from lib.utils import terminate_pid_safely, calculate_volume
 silence_threshold = 300  # same as from main
 frame_length = 512  # same as from main
 pre_interrupt_speaking_minimum = (
-    0.3 * 32
-)  # 0.3 seconds of speaking to interrupt before audio_playback is reproduced
+    0.1 * 32
+)  # 0.1 seconds of speaking to interrupt before audio_playback is reproduced
 
 
 class InterruptionDetection:
@@ -37,10 +37,10 @@ class InterruptionDetection:
     pause_frame_count: int
 
     def __init__(self) -> None:
-        self.reply_audio_started = False
-        self.interrupted = False
-        self.done = False
-        self.audio_playback_process_pid = None
+        self.start()
+
+    def start(self):
+        self.reset()
         self.interruption_check_in_queue = multiprocessing.Queue()
         self.interruption_check_out_queue = multiprocessing.Queue()
         self.speaking_frame_count = 0
@@ -52,6 +52,19 @@ class InterruptionDetection:
         )
         self.interruption_check_process.start()
 
+    def reset(self):
+        self.reply_audio_started = False
+        self.interrupted = False
+        self.done = False
+        self.audio_playback_process_pid = None
+
+    def stop(self):
+        self.interruption_check_in_queue.close()
+        self.interruption_check_out_queue.close()
+        self.done = True
+        terminate_pid_safely(self.audio_playback_process_pid)
+        self.interruption_check_process.kill()
+
     def pause_for(self, n_frames: int):
         self.pause_frame_count = n_frames
 
@@ -62,21 +75,13 @@ class InterruptionDetection:
         self.audio_playback_process_pid = audio_playback_process_id
         self.reply_audio_started = True
 
-    def stop(self):
-        self.interruption_check_in_queue.close()
-        self.interruption_check_out_queue.close()
-        self.done = True
-        terminate_pid_safely(self.audio_playback_process_pid)
-        self.interruption_check_process.kill()
-
     def interrupt(self):
         self.interrupted = True
-        self.stop()
 
     def should_stop_consuming_microphone(self):
         return self.reply_audio_started
 
-    def check_for_interruption(self, pcm: List[Any], is_silence: bool):
+    def check_for_interruption(self, pcm: Union[List[Any], bytearray], is_silence: bool):
         if self.interrupted:
             return True
 

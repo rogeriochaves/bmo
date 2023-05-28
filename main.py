@@ -1,6 +1,7 @@
 import argparse
 from multiprocessing import Value
 from multiprocessing.sharedctypes import Synchronized
+from threading import Thread
 import time
 from dotenv import load_dotenv  # has to be the first import
 
@@ -37,7 +38,7 @@ speaking_minimum = 0.3 * 32  # 0.3 seconds of speaking
 silence_time_to_standby = (
     10 * 32
 )  # goes back to wakeup word checking after 10s of silence
-restart_recorder_every = 60 # restarts mic recorder every 60s when in standby because sometimes it get stuck in buffer overflow error
+restart_recorder_every = 60  # restarts mic recorder every 60s when in standby because sometimes it get stuck in buffer overflow error
 
 
 RecordingState = Literal[
@@ -62,7 +63,7 @@ class AudioRecording:
     recording_audio_buffer: bytearray
 
     chat_gpt: ChatGPT
-    interruption_detection: Optional[InterruptionDetection]
+    interruption_detection: InterruptionDetection
     speech_recognition: SpeechRecognition
 
     def __init__(self, recorder: PvRecorder, cli_args: argparse.Namespace) -> None:
@@ -72,10 +73,11 @@ class AudioRecording:
         self.recording_audio_buffer = bytearray()
         self.speaking_frame_count = 0
         self.chat_gpt = ChatGPT(cli_args)
-        self.interruption_detection = None
+        self.interruption_detection = InterruptionDetection()
         self.speech_recognition = speech_recognition.ENGINES[
             cli_args.speech_recognition
         ]()
+        self.speech_recognition.restart()
         self.reset("waiting_for_silence")
 
         if picovoice_access_key:
@@ -93,28 +95,23 @@ class AudioRecording:
         self.silence_frame_count = 0
 
         if state == "waiting_for_silence":
-            self.speech_recognition.restart()
-            self.interruption_detection = None
+            self.interruption_detection.reset()
         elif state == "replying":
-            self.interruption_detection = InterruptionDetection()
+            pass
+        elif state == "start_reply":
+            pass
         elif state == "waiting_for_wakeup":
             text_to_speech.play_audio_file_non_blocking("beep_standby.mp3")
             self.silence_frame_count = 0
             self.speaking_frame_count = 0
             self.chat_gpt.stop()
             self.speech_recognition.stop()
-            if self.interruption_detection:
-                self.interruption_detection.stop()
-        else:
-            self.speaking_frame_count = 0
-            self.recording_audio_buffer = bytearray()
-            self.interruption_detection = None
+            self.interruption_detection.stop()
 
     def stop(self):
         self.recorder.stop()
         self.chat_gpt.stop()
-        if self.interruption_detection:
-            self.interruption_detection.stop()
+        self.interruption_detection.stop()
         self.speech_recognition.stop()
         if self.porcupine:
             self.porcupine.delete()
@@ -138,24 +135,28 @@ class AudioRecording:
             self.waiting_for_silence(pcm)
 
         elif self.state == "start_reply":
-            self.recorder.stop()
-            transcription = self.speech_recognition.transcribe_and_stop()
-            if len(transcription.strip()) == 0:
-                logger.info("Transcription too small, probably a mistake, bailing out")
-                self.reset("waiting_for_silence")
-                return
-
-            user_message: Message = {"role": "user", "content": transcription}
-            self.conversation.append(user_message)
-            self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
-
-            self.chat_gpt.reply(self.conversation)
-
+            start_reply_thread = Thread(target=self.start_reply_async)
+            start_reply_thread.start()
             self.reset("replying")
-            self.recorder.start()
 
         elif self.state == "replying":
             self.replying_loop(pcm)
+
+    def start_reply_async(self):
+        transcription = self.speech_recognition.transcribe_and_stop()
+        if len(transcription.strip()) == 0:
+            logger.info("Transcription too small, probably a mistake, bailing out")
+            self.reset("waiting_for_silence")
+            return
+
+        if self.state != "replying":
+            return  # probably got interrupted
+
+        user_message: Message = {"role": "user", "content": transcription}
+        self.conversation.append(user_message)
+        self.recording_audio_buffer = self.recording_audio_buffer[-frame_length:]
+
+        self.chat_gpt.reply(self.conversation)
 
     def is_silence(self, pcm):
         rms = calculate_volume(pcm)
@@ -187,6 +188,7 @@ class AudioRecording:
             text_to_speech.play_audio_file_non_blocking("beep_wakeup.mp3")
             self.chat_gpt.restart()
             self.speech_recognition.restart()
+            self.interruption_detection.start()
             self.transcribe_buffer()
             self.state = "start_reply"
 
@@ -238,9 +240,6 @@ class AudioRecording:
             self.reset("waiting_for_wakeup")
 
     def replying_loop(self, pcm: List[Any]):
-        if self.interruption_detection is None:
-            return
-
         try:
             (action, data) = self.chat_gpt.get(block=False)
             if action == "assistent_message":
@@ -249,6 +248,7 @@ class AudioRecording:
                 self.silence_frame_count = 0
                 self.speaking_frame_count = 0
                 self.interruption_detection.start_reply_interruption_check(data)
+                self.speech_recognition.restart()
             elif action == "reply_audio_ended":
                 self.interruption_detection.stop()
                 if "🔚" in self.conversation[-1]["content"]:
@@ -273,7 +273,7 @@ class AudioRecording:
                 self.chat_gpt.restart()
                 # Capture the last few frames when interrupting the assistent, drop anything before that, since we don't want any echo feedbacks
                 self.recording_audio_buffer = self.recording_audio_buffer[
-                    -frame_length * 32 :
+                    -frame_length * 32 * 2 :
                 ]
                 self.reset("waiting_for_silence")
 

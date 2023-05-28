@@ -62,7 +62,7 @@ class WhisperAPI():
 
     def transcribe_and_stop(self):
         now = time.time()
-        minimum_transcriptions = 1
+        minimum_transcriptions = max(self.transcription_index - self.transcription_cut, 1)
 
         while (
             self.transcription_index >= minimum_transcriptions
