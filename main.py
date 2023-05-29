@@ -319,8 +319,12 @@ def main():
     except KeyboardInterrupt:
         print("Stopping ...")
         audio_recording.stop()
-    finally:
         recorder.delete()
+    except:
+        recorder.delete()
+        logger.exception("Exception thrown, trying to restart in 5s...")
+        time.sleep(5)
+        main()
 
 
 if __name__ == "__main__":
