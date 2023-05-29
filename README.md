@@ -107,9 +107,11 @@ python main.py -sr whisper-cpp
 
 If you are going to run the assistant for longer, then you probably want to enable a wake up word, otherwise all the audio captured by the microphone will keep being streamed to the Text to Speech engine for transcription, additionally, if you leave it running on the Raspberry Pi, it will waste a lot of CPU. So instead you can enable the wake up word detection to have a behaviour similar to Alexa or Google Assistant.
 
-By default BMO is configured to listen to the keyword **Chat G-P-T** (with english pronunciation), which is detected by using very efficient and accurate processing by the [porcupine](https://github.com/Picovoice/porcupine) library. On my personal tests, the CPU from Raspberry Pi stays around 8% usage, and with my passive cooling case, the temperature stays around 40ºC, so I can leave it running the whole day.
+By default BMO is configured to listen to the keyword **Chat G-P-T** (with english pronunciation, saying G-P-T letter by letter), which is detected by using very efficient and accurate processing by the [porcupine](https://github.com/Picovoice/porcupine) library. On my personal tests, I had no false positives ever, and the CPU from Raspberry Pi stays around 8% usage, which, with my passive cooling case, keeps the temperature below 40ºC, so I can leave it running the whole day.
 
-To set it up, go to [picovoice.ai](https://picovoice.ai) and get an API key, registering for a free account is enough, and then put it on `PICOVOICE_ACCESS_KEY`. You can change the keyword to be detected on the `porcupine.py` file
+To set it up, go to [picovoice.ai](https://picovoice.ai) and get an API key, registering for a free account is enough, and then put it on `PICOVOICE_ACCESS_KEY`. You can change the keyword to be detected on the `porcupine.py` file.
+
+BMO will enter in standby automatically after 20s of silence, or if you say bye to it, in any way or form, ChatGPT understands that you are saying bye.
 
 ## Initial Prompt and Personality
 
