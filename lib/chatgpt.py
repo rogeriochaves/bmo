@@ -1,8 +1,9 @@
 import argparse
+import re
 from multiprocessing import Process, Queue
 from multiprocessing.sharedctypes import Synchronized
 import os
-from typing import Any, List, Optional
+from typing import Any, List
 from typing_extensions import Literal, TypedDict
 
 import openai
@@ -192,4 +193,18 @@ class ChatGPT:
 
 
 def speechify(text: str):
-    return text.replace("#", "hashtag ").replace("🔚", "").strip()
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        "\U00002702-\U000027B0"
+        "\U000024C2-\U0001F251"
+        "]+",
+        flags=re.UNICODE,
+    )
+    spoken_hashtags = text.replace("#", "hashtag ")
+    no_emojis = emoji_pattern.sub(r"", spoken_hashtags)
+    stripped = no_emojis.strip()
+    return stripped
