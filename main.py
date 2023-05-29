@@ -38,7 +38,6 @@ speaking_minimum = 0.3 * 32  # 0.3 seconds of speaking
 silence_time_to_standby = (
     10 * 32
 )  # goes back to wakeup word checking after 10s of silence
-restart_recorder_every = 60  # restarts mic recorder every 60s when in standby because sometimes it get stuck in buffer overflow error
 
 
 RecordingState = Literal[
@@ -55,7 +54,6 @@ class AudioRecording:
 
     porcupine: Optional[pvporcupine.Porcupine]
     recorder: PvRecorder
-    recorder_started_at: float
     cli_args: argparse.Namespace
 
     silence_frame_count: int
@@ -68,7 +66,6 @@ class AudioRecording:
 
     def __init__(self, recorder: PvRecorder, cli_args: argparse.Namespace) -> None:
         self.recorder = recorder
-        self.recorder_started_at = time.time()
         self.cli_args = cli_args
         self.recording_audio_buffer = bytearray()
         self.speaking_frame_count = 0
@@ -194,10 +191,6 @@ class AudioRecording:
         if not self.porcupine:
             self.switch("waiting_for_silence")
             return
-        if time.time() - self.recorder_started_at > restart_recorder_every:
-            self.recorder.stop()
-            self.recorder.start()
-            self.recorder_started_at = time.time()
 
         print(f"⚪️ Waiting for wake up word...", end="\r", flush=True)
         trigger = self.porcupine.process(pcm)
