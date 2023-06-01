@@ -4,6 +4,14 @@
 
 BMO is a fast, open-source voice assistant using Speech Recognition (Whisper or whisper.cpp) + LLM (ChatGPT) + Text-To-Speech (espeak-ng, Elevenlabs or Piper) that runs on macOS and Raspberry PI with multi-language support
 
+Here is a demo of it running on the Raspberry PI (unmmute the video):
+
+https://github.com/rogeriochaves/bmo/assets/792201/6454ea77-b580-4dfa-9c3a-eabb847fc0ab
+
+On the desktop it can run even faster:
+
+https://github.com/rogeriochaves/bmo/assets/792201/56289d20-5be7-40da-afb6-cbbf22f0bcc6
+
 ## Features
 
 ✅ Wake up keyword detection
