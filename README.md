@@ -111,6 +111,10 @@ Now run BMO with whisper.cpp:
 python main.py -sr whisper-cpp
 ```
 
+Here is a demo of the multi-language capability while keeping the same voice of Elevenlabs
+
+https://github.com/rogeriochaves/bmo/assets/792201/5e7fdadd-1751-476e-9ff8-ff459ba9834c
+
 ## Standby Mode and Wake Up Word Detection
 
 If you are going to run the assistant for longer, then you probably want to enable a wake up word, otherwise all the audio captured by the microphone will keep being streamed to the Text to Speech engine for transcription, additionally, if you leave it running on the Raspberry Pi, it will waste a lot of CPU. So instead you can enable the wake up word detection to have a behaviour similar to Alexa or Google Assistant.
