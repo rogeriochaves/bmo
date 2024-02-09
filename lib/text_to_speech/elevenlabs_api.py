@@ -1,10 +1,8 @@
 import os
-from queue import Empty
+from queue import Empty, Queue
 import subprocess
 import multiprocessing
-from multiprocessing import Queue
-import subprocess
-from threading import Thread
+from threading import Thread, Semaphore
 from lib.delta_logging import logging
 from typing import Dict, Iterator, List, Union
 from typing_extensions import Literal
@@ -12,7 +10,7 @@ from elevenlabs import generate, Voice, VoiceSettings
 
 logger = logging.getLogger()
 
-eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
+eleven_labs_api_key = "cb07e6d99a69e1caf4cca7b29e99e9c6"
 
 VOICE_SETTINGS_STABILITY = 1
 VOICE_SETTINGS_SIMILARITY_BOOST = 0.75
@@ -33,6 +31,7 @@ class ElevenLabsAPI:
         self.reply_out_queue = reply_out_queue
         self.requested_to_stop = False
         self.local_queue = Queue()
+        self.semaphore = Semaphore(1) 
         self.start()
 
     def start(self):
@@ -65,6 +64,7 @@ class ElevenLabsAPI:
         self.audio_chunks[self.word_index] = []
         thread = Thread(target=self.generate_async, args=(word, self.word_index))
         thread.start()
+        #self.generate_async(word, self.word_index)
         self.word_index += 1
         try:
             self.reply_out_queue.put(self.local_queue.get(block=False))
@@ -72,34 +72,39 @@ class ElevenLabsAPI:
             pass
 
     def generate_async(self, word: str, index: int):
-        audio_stream: Iterator[bytes] = generate(
-            api_key=eleven_labs_api_key,
-            model="eleven_multilingual_v1",
-            voice=Voice(
-                voice_id=VOICE_ID,
-                settings=VoiceSettings(
-                    stability=VOICE_SETTINGS_STABILITY,
-                    similarity_boost=VOICE_SETTINGS_SIMILARITY_BOOST,
+        try:
+            self.semaphore.acquire()  # Acquire semaphore before proceeding
+            audio_stream: Iterator[bytes] = generate(
+                api_key=eleven_labs_api_key,
+                model="eleven_multilingual_v2",
+                voice=Voice(
+                    voice_id=VOICE_ID,
+                    settings=VoiceSettings(
+                        stability=VOICE_SETTINGS_STABILITY,
+                        similarity_boost=VOICE_SETTINGS_SIMILARITY_BOOST,
+                    ),
                 ),
-            ),  # type: ignore
-            text=word,
-            stream=True,
-        )
+                text=word,
+                stream=True,
+            )
 
-        for chunk_index, audio_chunk in enumerate(audio_stream):
-            if index == 0 and chunk_index == 0:
-                logger.info("First audio chunk arrived")
-                self.local_queue.put(("reply_audio_started", self.ffplay.pid))
+            for chunk_index, audio_chunk in enumerate(audio_stream):
+                if index == 0 and chunk_index == 0:
+                    logger.info("First audio chunk arrived")
+                    self.local_queue.put(("reply_audio_started", self.ffplay.pid))
+                
+                self.audio_chunks[index].append(audio_chunk)
 
-            self.audio_chunks[index].append(audio_chunk)
+                if index == self.playing_index:
+                    self.play_next_chunks()
 
-            if index == self.playing_index:
-                self.play_next_chunks()
-
-        self.audio_chunks[index].append("done")
-        self.play_next_chunks()
+            self.audio_chunks[index].append("done")
+            self.play_next_chunks()
+        finally:
+            self.semaphore.release() 
 
     def play_next_chunks(self):
+
         if self.playing_index not in self.audio_chunks:
             if self.requested_to_stop:
                 self.stop()
@@ -107,11 +112,12 @@ class ElevenLabsAPI:
 
         if self.ffplay.poll() is not None:
             return
-
         while len(self.audio_chunks[self.playing_index]) > 0:
             audio_chunk = self.audio_chunks[self.playing_index].pop(0)
             if audio_chunk == "done":
                 self.playing_index += 1
+                print("gonderrrrrrrrrrrrrrrrrr")
+                
                 self.play_next_chunks()
                 break
 
