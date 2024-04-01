@@ -48,6 +48,7 @@ Now, create a `.env` file in the bmo folder to put your API keys. You will need 
 OPENAI_API_KEY=<required from openai.com>
 PICOVOICE_ACCESS_KEY=<optional from picovoice.ai>
 ELEVEN_LABS_API_KEY=<optional from elevenlabs.io>
+GROQ_API_KEY=<optional from groq.com>
 ```
 
 Finally, launch BMO and start talking to it!
@@ -124,6 +125,10 @@ By default BMO is configured to listen to the keyword **Chat G-P-T** (with engli
 To set it up, go to [picovoice.ai](https://picovoice.ai) and get an API key, registering for a free account is enough, and then put it on `PICOVOICE_ACCESS_KEY`. You can change the keyword to be detected on the `porcupine.py` file.
 
 BMO will enter in standby automatically after 20s of silence, or if you say bye to it, in any way or form, ChatGPT understands that you are saying bye.
+
+## Groq for faster LLM response
+
+In alternative to OpenAI, you can setup [Groq](groq.com) for a whooping 500-700 tokens/s (~15x faster than GPT-3.5). With an LLM response so fast, the conversation gets way more fluid. If `GROQ_API_KEY` is set, it will be used instead of OpenAI for the LLM replies.
 
 ## Initial Prompt and Personality
 

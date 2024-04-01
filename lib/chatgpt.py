@@ -3,10 +3,12 @@ import re
 from multiprocessing import Process, Queue
 from multiprocessing.sharedctypes import Synchronized
 import os
-from typing import Any, List
+from typing import Any, Iterable, List, Optional, cast
 from typing_extensions import Literal, TypedDict
 
-import openai
+from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
+from groq import Groq
 
 from lib.text_to_speech import TextToSpeech
 import lib.delta_logging as delta_logging
@@ -15,7 +17,14 @@ import lib.text_to_speech as text_to_speech
 
 logger = logging.getLogger()
 
-openai.api_key = os.environ["OPENAI_API_KEY"]
+openai = OpenAI(
+    api_key=os.environ["OPENAI_API_KEY"],
+)
+groq: Optional[Groq] = None
+if os.environ.get("GROQ_API_KEY"):
+    groq = Groq(
+        api_key=os.environ.get("GROQ_API_KEY"),
+    )
 
 
 class Message(TypedDict):
@@ -23,7 +32,7 @@ class Message(TypedDict):
     content: str
 
 
-Conversation = List[Message]
+Conversation = Iterable[ChatCompletionMessageParam]
 
 prompt = (
     "You are a fun, witty and helpful assistant called ChatGPT that gives only short answers, think in tweet-size, one sentence, 140 characters max. "
@@ -116,11 +125,17 @@ class ChatGPT:
         cls, conversation: Conversation, tts: TextToSpeech, reply_out_queue: Queue
     ):
         def chat_completion_create():
-            return openai.ChatCompletion.create(
+            if groq:
+                return groq.chat.completions.create(
+                    model="mixtral-8x7b-32768",
+                    messages=cast(Any, conversation),
+                    timeout=3,
+                    stream=True,
+                )
+            return openai.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=conversation,
                 timeout=3,
-                request_timeout=3,
                 stream=True,
             )
 
@@ -133,22 +148,22 @@ class ChatGPT:
             return next_sentence
 
         try:
-            stream: Any = chat_completion_create()
+            stream = chat_completion_create()
         except:
             # retry once
-            stream: Any = chat_completion_create()
+            stream = chat_completion_create()
 
         full_message = ""
         next_sentence = ""
         first = True
 
         for response in stream:
-            if "content" not in response.choices[0].delta:
+            content = response.choices[0].delta.content
+            if not content:
                 continue
 
             token = (
-                response.choices[0]
-                .delta.content.replace("!", "!·")
+                content.replace("!", "!·")
                 .replace("?", "?·")
                 .replace(".", ".·")
                 .replace(",", ",·")
@@ -170,13 +185,13 @@ class ChatGPT:
                 next_sentence = flush_to_tts(next_sentence, split_token="·")
 
             if (
-                len(next_sentence.split(" ")) > 20
+                len(next_sentence.split(" ")) > (100 if groq else 20)
             ):  # flush if over 20 words already without stop points
                 next_sentence = flush_to_tts(
                     next_sentence, split_token=" ", join_token=" "
                 )
 
-            if len(full_message.split(" ")) > 100:
+            if len(full_message.split(" ")) > (500 if groq else 100):
                 break
         print("")
 

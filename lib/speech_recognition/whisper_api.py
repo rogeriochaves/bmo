@@ -1,18 +1,21 @@
 from io import BytesIO
+import os
 from threading import Thread
 import time
 from typing import Dict, Union
 import wave
 
-import openai
-from openai import util
+from openai import OpenAI
 
 from lib.delta_logging import logging
 
 logger = logging.getLogger()
+openai = OpenAI(
+    api_key=os.environ["OPENAI_API_KEY"],
+)
 
 
-class WhisperAPI():
+class WhisperAPI:
     transcription_index: int
     transcription_cut: int
     transcription_results: Dict[int, Union[Exception, str]]
@@ -41,28 +44,23 @@ class WhisperAPI():
 
     def transcribe_async(self, audio_buffer, index):
         try:
-            file = self.create_audio_file(audio_buffer)
+            audio_file = self.create_audio_file(audio_buffer)
 
-            requestor, files, data = openai.Audio._prepare_request(
-                file=file,
-                filename=file.name,
-                model="whisper-1",
+            transcription = openai.audio.transcriptions.create(
+                model="whisper-1", file=audio_file
             )
-            url = openai.Audio._get_url("transcriptions")
-            response, _, api_key = requestor.request(
-                "post", url, files=files, params=data, request_timeout=5
-            )
-            result = util.convert_to_openai_object(response, api_key, None, None)  # type: ignore
 
             if index >= self.transcription_cut:
-                self.transcription_results[index] = result["text"]  # type: ignore
+                self.transcription_results[index] = transcription.text  # type: ignore
         except Exception as err:
             if index >= self.transcription_cut:
                 self.transcription_results[index] = err
 
     def transcribe_and_stop(self):
         now = time.time()
-        minimum_transcriptions = max(self.transcription_index - self.transcription_cut, 1)
+        minimum_transcriptions = max(
+            self.transcription_index - self.transcription_cut, 1
+        )
 
         while (
             self.transcription_index >= minimum_transcriptions

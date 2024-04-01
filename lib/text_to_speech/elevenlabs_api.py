@@ -8,7 +8,8 @@ from threading import Thread
 from lib.delta_logging import logging
 from typing import Dict, Iterator, List, Union
 from typing_extensions import Literal
-from elevenlabs import generate, Voice, VoiceSettings
+from elevenlabs.client import ElevenLabs
+from elevenlabs import Voice, VoiceSettings
 
 logger = logging.getLogger()
 
@@ -17,6 +18,8 @@ eleven_labs_api_key = os.environ["ELEVEN_LABS_API_KEY"]
 VOICE_SETTINGS_STABILITY = 1
 VOICE_SETTINGS_SIMILARITY_BOOST = 0.75
 VOICE_ID = "pNInz6obpgDQGcFmaJgB"  # pNInz6obpgDQGcFmaJgB
+
+client = ElevenLabs(api_key=eleven_labs_api_key)
 
 
 class ElevenLabsAPI:
@@ -72,9 +75,8 @@ class ElevenLabsAPI:
             pass
 
     def generate_async(self, word: str, index: int):
-        audio_stream: Iterator[bytes] = generate(
-            api_key=eleven_labs_api_key,
-            model="eleven_multilingual_v1",
+        audio_stream: Iterator[bytes] = client.generate(
+            model="eleven_multilingual_v2",
             voice=Voice(
                 voice_id=VOICE_ID,
                 settings=VoiceSettings(
