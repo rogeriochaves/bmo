@@ -3,6 +3,7 @@ import re
 from multiprocessing import Process, Queue
 from multiprocessing.sharedctypes import Synchronized
 import os
+import time
 from typing import Any, Iterable, List, Optional, cast
 from typing_extensions import Literal, TypedDict
 
@@ -61,6 +62,7 @@ initial_message: Message = {"role": "system", "content": prompt}
 class ChatGPT:
     cli_args: argparse.Namespace
     reply_process: Process
+    tts_reply_in_queue: Queue
     reply_in_queue: Queue
     reply_out_queue: Queue
 
@@ -69,12 +71,14 @@ class ChatGPT:
         self.start()
 
     def start(self):
+        self.tts_reply_in_queue = Queue()
         self.reply_in_queue = Queue()
         self.reply_out_queue = Queue()
         self.reply_process = Process(
             target=ChatGPT.reply_loop,
             args=(
                 self.cli_args,
+                self.tts_reply_in_queue,
                 self.reply_in_queue,
                 self.reply_out_queue,
                 log_formatter.start_time,
@@ -84,8 +88,9 @@ class ChatGPT:
 
     def stop(self):
         if self.reply_process.is_alive():
-            self.reply_in_queue.put("stop")
-            self.reply_process.terminate()
+            self.tts_reply_in_queue.put("stop")
+            self.reply_out_queue.put(("reply_audio_ended", None))
+            # self.reply_process.terminate()
 
     def restart(self):
         self.stop()
@@ -101,21 +106,22 @@ class ChatGPT:
     def reply_loop(
         cls,
         cli_args: argparse.Namespace,
+        tts_reply_in_queue: Queue,
         reply_in_queue: Queue,
         reply_out_queue: Queue,
         start_time: Synchronized,
     ):
         log_formatter.start_time = start_time
-        tts = text_to_speech.ENGINES[cli_args.text_to_speech](reply_out_queue)
+        tts = text_to_speech.ENGINES[cli_args.text_to_speech](
+            tts_reply_in_queue, reply_out_queue
+        )
         while True:
             try:
                 conversation = reply_in_queue.get(block=True)
-                if conversation == "stop":
-                    tts.stop()
-                    break
-
                 ChatGPT.non_blocking_reply(conversation, tts, reply_out_queue)
-                tts = text_to_speech.ENGINES[cli_args.text_to_speech](reply_out_queue)
+                tts = text_to_speech.ENGINES[cli_args.text_to_speech](
+                    tts_reply_in_queue, reply_out_queue
+                )
             except Exception:
                 logging.exception("Exception thrown in reply")
                 text_to_speech.play_audio_file("error.mp3", reply_out_queue)
@@ -157,42 +163,46 @@ class ChatGPT:
         next_sentence = ""
         first = True
 
-        for response in stream:
-            content = response.choices[0].delta.content
-            if not content:
-                continue
+        try:
+            for response in stream:
+                content = response.choices[0].delta.content
+                if not content:
+                    continue
 
-            token = (
-                content.replace("!", "!·")
-                .replace("?", "?·")
-                .replace(".", ".·")
-                .replace(",", ",·")
-                .replace("- ", "-· ")
-                .replace("/ ", "/· ")
-            )
-            if first:
-                delta_logging.handler.terminator = ""
-                logger.info("Chat GPT reply: %s", token)
-                delta_logging.handler.terminator = "\n"
-                first = False
-            else:
-                print(token, end="", flush=True)
-
-            full_message += token
-            next_sentence += token
-
-            if not groq and "·" in next_sentence:
-                next_sentence = flush_to_tts(next_sentence, split_token="·")
-
-            if len(next_sentence.split(" ")) > (
-                100 if groq else 20
-            ):  # flush if over 20 words already without stop points
-                next_sentence = flush_to_tts(
-                    next_sentence, split_token=" ", join_token=" "
+                token = (
+                    content.replace("!", "!·")
+                    .replace("?", "?·")
+                    .replace(".", ".·")
+                    .replace(",", ",·")
+                    .replace("- ", "-· ")
+                    .replace("/ ", "/· ")
                 )
+                if first:
+                    delta_logging.handler.terminator = ""
+                    logger.info("Chat GPT reply: %s", token)
+                    delta_logging.handler.terminator = "\n"
+                    first = False
+                else:
+                    print(token, end="", flush=True)
 
-            if len(full_message.split(" ")) > (500 if groq else 100):
-                break
+                full_message += token
+                next_sentence += token
+
+                if not groq and "·" in next_sentence:
+                    next_sentence = flush_to_tts(next_sentence, split_token="·")
+
+                if len(next_sentence.split(" ")) > (
+                    100 if groq else 20
+                ):  # flush if over 20 words already without stop points
+                    next_sentence = flush_to_tts(
+                        next_sentence, split_token=" ", join_token=" "
+                    )
+
+                if len(full_message.split(" ")) > (500 if groq else 100):
+                    break
+        except Exception as e:
+            if len(full_message) == 0:
+                raise e
         print("")
 
         full_message = full_message.replace("·", "").strip()

@@ -14,7 +14,7 @@ logger = logging.getLogger()
 class TextToSpeech(Protocol):
     min_words: int
 
-    def __init__(self, reply_out_queue: multiprocessing.Queue) -> None:
+    def __init__(self, reply_in_queue: multiprocessing.Queue, reply_out_queue: multiprocessing.Queue) -> None:
         pass
 
     def start(self):

@@ -23,6 +23,8 @@ pre_interrupt_speaking_minimum = (
     0.1 * 32
 )  # 0.1 seconds of speaking to interrupt before audio_playback is reproduced
 
+global_average_volumes = []
+
 
 class InterruptionDetection:
     reply_audio_started: bool
@@ -53,6 +55,8 @@ class InterruptionDetection:
         self.interruption_check_process.start()
 
     def reset(self):
+        self.speaking_frame_count = 0
+        self.pause_frame_count = 0
         self.reply_audio_started = False
         self.interrupted = False
         self.done = False
@@ -72,16 +76,17 @@ class InterruptionDetection:
         return self.done
 
     def start_reply_interruption_check(self, audio_playback_process_id: int):
+        self.stop()
+        self.start()
         self.audio_playback_process_pid = audio_playback_process_id
         self.reply_audio_started = True
 
     def interrupt(self):
         self.interrupted = True
 
-    def should_stop_consuming_microphone(self):
-        return self.reply_audio_started
-
-    def check_for_interruption(self, pcm: Union[List[Any], bytearray], is_silence: bool):
+    def check_for_interruption(
+        self, pcm: Union[List[Any], bytearray], is_silence: bool
+    ):
         if self.interrupted:
             return True
 
@@ -97,18 +102,20 @@ class InterruptionDetection:
                 if self.speaking_frame_count > pre_interrupt_speaking_minimum:
                     self.interrupt()
                     return True
-        return False
 
-        try:
-            signal = self.interruption_check_out_queue.get(block=False)
-            if signal == "interrupt":
-                self.interrupt()
-                return True
-        except Empty:
-            pass
+            return False
+        else:
+            return False # disable interruption detection for now
+            try:
+                signal = self.interruption_check_out_queue.get(block=False)
+                if signal == "interrupt":
+                    self.interrupt()
+                    return True
+            except Empty:
+                pass
 
-        self.interruption_check_in_queue.put(pcm)
-        return False
+            self.interruption_check_in_queue.put(pcm)
+            return False
 
 
 def check_next_frame(in_queue: Queue, out_queue: Queue):
@@ -136,7 +143,7 @@ def check_next_frame(in_queue: Queue, out_queue: Queue):
             initial_batches_volume.append(calculate_volume(pcm_batch))
             if len(initial_batches_volume) == how_many_initial_batchs_to_define:
                 max_volume = max(
-                    float(np.quantile(initial_batches_volume, 0.9)), silence_threshold
+                    float(np.quantile(initial_batches_volume, 0.95)), silence_threshold
                 )
                 batch_size = 4
 
@@ -151,10 +158,25 @@ def check_next_frame(in_queue: Queue, out_queue: Queue):
 
         volume_pcm = calculate_volume(pcm_batch)
 
-        if volume_pcm >= max_volume:
+        if max_volume not in global_average_volumes:
+            global_average_volumes.append(max_volume)
+
+        avg_max_volume = sum(global_average_volumes) / len(global_average_volumes)
+        adjusted_avg_max_volume = avg_max_volume * (
+            1.2 if len(global_average_volumes) > 1 else 1.5
+        )
+
+        print(
+            "\n\nCHECKING FOR INTERRUPTIONS STARTED\n\n",
+            volume_pcm,
+            ">=",
+            adjusted_avg_max_volume,
+        )
+
+        if volume_pcm >= adjusted_avg_max_volume:
             stop_counts += 1
             loops_since_last_stop = 0
 
-        if stop_counts >= 2:
+        if stop_counts >= 1:
             out_queue.put("interrupt")
             break

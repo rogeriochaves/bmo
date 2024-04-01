@@ -25,6 +25,7 @@ client = ElevenLabs(api_key=eleven_labs_api_key)
 class ElevenLabsAPI:
     min_words = 2
     ffplay: subprocess.Popen
+    reply_in_queue: multiprocessing.Queue
     reply_out_queue: multiprocessing.Queue
     word_index: int
     audio_chunks: Dict[int, List[Union[bytes, Literal["done"]]]]
@@ -32,7 +33,12 @@ class ElevenLabsAPI:
     requested_to_stop: bool
     local_queue: Queue
 
-    def __init__(self, reply_out_queue: multiprocessing.Queue) -> None:
+    def __init__(
+        self,
+        reply_in_queue: multiprocessing.Queue,
+        reply_out_queue: multiprocessing.Queue,
+    ) -> None:
+        self.reply_in_queue = reply_in_queue
         self.reply_out_queue = reply_out_queue
         self.requested_to_stop = False
         self.local_queue = Queue()
@@ -50,12 +56,22 @@ class ElevenLabsAPI:
         )
 
     def wait_to_finish(self):
-        self.requested_to_stop = True
         while True:
-            action, data = self.local_queue.get(block=True)
-            self.reply_out_queue.put((action, data))
-            if action == "reply_audio_ended":
-                break
+            try:
+                outside_action = self.reply_in_queue.get(block=False)
+                if outside_action == "stop":
+                    self.stop()
+                    break
+            except Empty:
+                pass
+
+            try:
+                action, data = self.local_queue.get(block=False)
+                self.reply_out_queue.put((action, data))
+                if action == "reply_audio_ended":
+                    break
+            except Empty:
+                pass
 
     def stop(self):
         self.ffplay.stdin.close()  # type: ignore

@@ -13,12 +13,18 @@ class PiperTTS:
     piper: subprocess.Popen
     ffplay: subprocess.Popen
     from_piper_to_ffplay: Thread
+    reply_in_queue: multiprocessing.Queue
     reply_out_queue: multiprocessing.Queue
     local_queue: Queue
     requested_to_stop: bool
     first: bool
 
-    def __init__(self, reply_out_queue: multiprocessing.Queue) -> None:
+    def __init__(
+        self,
+        reply_in_queue: multiprocessing.Queue,
+        reply_out_queue: multiprocessing.Queue,
+    ) -> None:
+        self.reply_in_queue = reply_in_queue
         self.reply_out_queue = reply_out_queue
         self.start()
 
@@ -97,8 +103,6 @@ class PiperTTS:
     def play_chunk(self, output):
         if self.first:
             logger.info("First audio chunk arrived")
-            self.reply_out_queue.put(
-                ("reply_audio_started", self.ffplay.pid)
-            )
+            self.reply_out_queue.put(("reply_audio_started", self.ffplay.pid))
             self.first = False
         self.ffplay.stdin.write(output)  # type: ignore

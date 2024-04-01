@@ -124,7 +124,7 @@ class AudioRecording:
         if state == "waiting_for_silence":
             self.interruption_detection.reset()
         elif state == "replying":
-            pass
+            self.interruption_detection.speaking_frame_count = 0
         elif state == "start_reply":
             pass
         elif state == "waiting_for_wakeup":
@@ -276,12 +276,14 @@ class AudioRecording:
             )
             if interrupted:
                 logger.info("Interrupted")
+                self.interruption_detection.stop()
                 self.chat_gpt.restart()
                 # Capture the last few frames when interrupting the assistent, drop anything before that, since we don't want any echo feedbacks
-                self.recording_audio_buffer = self.recording_audio_buffer[
-                    -frame_length * 32 * 2 :
-                ]
-                self.speaking_frame_count = math.ceil(speaking_minimum)
+                # self.recording_audio_buffer = self.recording_audio_buffer[
+                #     -frame_length * 32 * 2 :
+                # ]
+                self.recording_audio_buffer = bytearray()
+                self.speaking_frame_count = 0  # math.ceil(speaking_minimum)
                 self.switch("waiting_for_silence")
 
 
