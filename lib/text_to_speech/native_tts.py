@@ -49,7 +49,7 @@ class NativeTTS:
         while self.playing_index != index:
             pass
         if platform.system() == "Darwin":
-            subprocess.call(["say", word, "-r", "200"])
+            subprocess.call(["say", word])
         else:
             subprocess.call(["espeak-ng", word])
         self.playing_index += 1

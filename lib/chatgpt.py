@@ -32,7 +32,7 @@ class Message(TypedDict):
     content: str
 
 
-Conversation = Iterable[ChatCompletionMessageParam]
+Conversation = List[Message]
 
 prompt = (
     "You are a fun, witty and helpful assistant called ChatGPT that gives only short answers, think in tweet-size, one sentence, 140 characters max. "
@@ -134,7 +134,7 @@ class ChatGPT:
                 )
             return openai.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=conversation,
+                messages=cast(Any, conversation),
                 timeout=3,
                 stream=True,
             )
@@ -181,11 +181,11 @@ class ChatGPT:
             full_message += token
             next_sentence += token
 
-            if "·" in next_sentence:
+            if not groq and "·" in next_sentence:
                 next_sentence = flush_to_tts(next_sentence, split_token="·")
 
-            if (
-                len(next_sentence.split(" ")) > (100 if groq else 20)
+            if len(next_sentence.split(" ")) > (
+                100 if groq else 20
             ):  # flush if over 20 words already without stop points
                 next_sentence = flush_to_tts(
                     next_sentence, split_token=" ", join_token=" "
