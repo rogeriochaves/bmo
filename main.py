@@ -295,7 +295,7 @@ def main():
         "-sr",
         "--speech-recognition",
         dest="speech_recognition",
-        choices=["whisper", "whisper-cpp"],
+        choices=["whisper", "whisper-cpp", "lightning-whisper-mlx"],
         default="whisper",
         help="Choose the speech recognition engine to be used, default to whisper",
     )

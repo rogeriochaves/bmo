@@ -3,6 +3,7 @@ from typing import Dict, Type
 from typing_extensions import Protocol
 
 from lib.delta_logging import logging
+from lib.speech_recognition.lightning_whisper_mlx import LightningWhisperMlx
 from lib.speech_recognition.whisper_api import WhisperAPI
 from lib.speech_recognition.whisper_cpp import WhisperCpp
 
@@ -24,7 +25,8 @@ class SpeechRecognition(Protocol):
 
 ENGINES : Dict[str, Type[SpeechRecognition]] = {
     "whisper": WhisperAPI,
-    "whisper-cpp": WhisperCpp
+    "whisper-cpp": WhisperCpp,
+    "lightning-whisper-mlx": LightningWhisperMlx
 }
 
 def transcribe(file) -> str:
